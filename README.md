@@ -148,6 +148,15 @@ linear-expert/
 - `LINEAR_REDIRECT_URI`
 - `OPENCLAW_INTERNAL_SECRET`
 
+### 当前 OAuth scopes
+`/oauth/start` 当前会申请以下 scopes：
+- `read`
+- `write`
+- `app:assignable`
+- `app:mentionable`
+
+这意味着重新授权后，Expert 应该可以开始出现在 Linear 的 assign / mention 相关入口里。
+
 ### 当前项目锚点
 - Worker URL: `https://linear-expert.placeapp.workers.dev`
 - Webhook URL: `https://linear-expert.placeapp.workers.dev/webhooks/linear`
