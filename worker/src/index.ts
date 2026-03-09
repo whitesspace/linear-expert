@@ -67,6 +67,11 @@ export default {
           internalList: "GET /internal/tasks?status=pending&limit=25",
           internalClaim: "POST /internal/tasks/:id/claim",
           internalResult: "POST /internal/tasks/:id/result",
+          internalLinearComment: "POST /internal/linear/comment",
+          internalLinearCreateIssue: "POST /internal/linear/issues/create",
+          internalLinearUpdateIssue: "POST /internal/linear/issues/update",
+          internalLinearAssignIssue: "POST /internal/linear/issues/assign",
+          internalLinearStateIssue: "POST /internal/linear/issues/state",
           debugComment: "POST /internal/debug/comment"
         }
       }, { status: state.ready ? 200 : 503 });
