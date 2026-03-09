@@ -5,7 +5,7 @@ export type TaskStatus =
   | "ignored"
   | "failed";
 
-export type TaskResultAction = "reply" | "noop" | "error";
+export type TaskResultAction = "reply" | "create_issue" | "update_issue" | "assign_issue" | "transition_issue" | "noop" | "error";
 
 export interface NewTaskRecord {
   source: "linear";

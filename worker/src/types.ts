@@ -19,7 +19,7 @@ export interface LinearTask {
 }
 
 export interface TaskResultPayload {
-  action: 'reply' | 'noop' | 'error';
+  action: 'reply' | 'create_issue' | 'update_issue' | 'assign_issue' | 'transition_issue' | 'noop' | 'error';
   replyBody?: string;
   reason?: string;
 }

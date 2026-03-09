@@ -127,6 +127,13 @@ linear-expert/
 - `GET /internal/tasks?status=pending&limit=25`
 - `POST /internal/tasks/:id/claim`
 - `POST /internal/tasks/:id/result`
+- `POST /internal/linear/comment`
+- `POST /internal/linear/issues/create`
+- `POST /internal/linear/issues/update`
+- `POST /internal/linear/issues/assign`
+- `POST /internal/linear/issues/state`
+
+这些正式 execution APIs 会逐步替代临时 debug 路径。
 
 这些 internal 路由必须通过 `OPENCLAW_INTERNAL_SECRET` 保护。
 
