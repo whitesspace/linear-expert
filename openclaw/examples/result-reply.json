@@ -1,0 +1,5 @@
+{
+  "action": "reply",
+  "replyBody": "Thanks for filing PCF-2151! 我们已经在内部复现，稍后提供 patch。",
+  "reason": "issue 已有可复现信息，直接回复。"
+}
