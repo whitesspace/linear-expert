@@ -21,6 +21,25 @@ export async function linearGraphql<T>(query: string, variables: Record<string, 
   return json.data as T;
 }
 
+export async function getInstallationIdentity(accessToken: string) {
+  const query = `query InstallationIdentity {
+    viewer {
+      id
+      name
+    }
+    organization {
+      id
+      name
+      urlKey
+    }
+  }`;
+
+  return linearGraphql<{
+    viewer?: { id: string; name: string };
+    organization?: { id: string; name: string; urlKey?: string };
+  }>(query, {}, accessToken);
+}
+
 async function getValidAccessToken(env: Env, workspaceId: string): Promise<string> {
   const storage = getStorage(env);
   const token = await storage.oauth.get(workspaceId);

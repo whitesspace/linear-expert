@@ -290,6 +290,7 @@ npm test
 - 更强的 idempotency / retries
 - 更完整的 webhook event coverage
 - 更好的 internal observability
+- 对接 Linear `agent-interaction` / `agent session events`（计划中，留到下一轮推进）
 
 ### v0.3
 - 自动状态更新

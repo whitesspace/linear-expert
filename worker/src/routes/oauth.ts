@@ -1,6 +1,7 @@
 import { buildAuthorizeUrl, exchangeCodeForToken } from '../auth/oauth';
 import type { Env } from '../types';
 import { getStorage } from '../storage';
+import { getInstallationIdentity } from '../linear/client';
 
 function normalizeScopes(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map(String);
@@ -29,17 +30,17 @@ export async function oauthCallback(request: Request, env: Env): Promise<Respons
 
   const tokenResponse = await exchangeCodeForToken(code, env) as any;
   const storage = getStorage(env);
+  const accessToken = tokenResponse.access_token as string;
+  const identity = await getInstallationIdentity(accessToken);
 
   const workspaceId =
-    tokenResponse.workspace?.id ||
-    tokenResponse.organization?.id ||
-    tokenResponse.team?.id ||
-    tokenResponse.app?.id ||
+    identity.organization?.id ||
+    identity.viewer?.id ||
     'default-workspace';
 
   await storage.oauth.upsert({
     workspaceId,
-    accessToken: tokenResponse.access_token,
+    accessToken,
     refreshToken: tokenResponse.refresh_token ?? '',
     expiresAt: tokenResponse.expires_in
       ? new Date(Date.now() + Number(tokenResponse.expires_in) * 1000).toISOString()
@@ -52,6 +53,10 @@ export async function oauthCallback(request: Request, env: Env): Promise<Respons
     ok: true,
     message: 'OAuth callback received and token persisted',
     workspaceId,
-    actorMode: 'app'
+    actorMode: 'app',
+    identity: {
+      viewer: identity.viewer ?? null,
+      organization: identity.organization ?? null
+    }
   });
 }
