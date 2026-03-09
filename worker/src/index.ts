@@ -3,6 +3,7 @@ import { json } from "./lib/http";
 import { handleInternalRequest } from "./routes/internal";
 import { startOauth, oauthCallback } from "./routes/oauth";
 import { handleLinearWebhook } from "./routes/webhooks";
+import { handleDebugComment } from "./routes/debug";
 import { getStorage } from "./storage";
 import { APP_CONFIG, missingSecrets } from "./env";
 
@@ -35,6 +36,10 @@ export default {
       return oauthCallback(request, env);
     }
 
+    if (url.pathname === "/internal/debug/comment" && request.method === "POST") {
+      return handleDebugComment(request, env);
+    }
+
     const internalResponse = await handleInternalRequest(request, env, storage);
     if (internalResponse) {
       return internalResponse;
@@ -61,7 +66,8 @@ export default {
           linearWebhook: "POST /webhooks/linear",
           internalList: "GET /internal/tasks?status=pending&limit=25",
           internalClaim: "POST /internal/tasks/:id/claim",
-          internalResult: "POST /internal/tasks/:id/result"
+          internalResult: "POST /internal/tasks/:id/result",
+          debugComment: "POST /internal/debug/comment"
         }
       }, { status: state.ready ? 200 : 503 });
     }
