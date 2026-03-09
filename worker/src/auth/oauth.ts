@@ -3,7 +3,7 @@ import type { Env } from '../types';
 const LINEAR_AUTH_BASE = 'https://linear.app/oauth/authorize';
 const LINEAR_TOKEN_URL = 'https://api.linear.app/oauth/token';
 
-export function buildAuthorizeUrl(env: Env, state: string, scopes: string[] = ['read', 'write']): string {
+export function buildAuthorizeUrl(env: Env, state: string, scopes: string[] = ['read', 'write', 'app:assignable', 'app:mentionable']): string {
   if (!env.LINEAR_CLIENT_ID || !env.LINEAR_REDIRECT_URI) {
     throw new Error('Missing LINEAR_CLIENT_ID or LINEAR_REDIRECT_URI');
   }
