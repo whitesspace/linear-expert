@@ -1,19 +1,20 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "linear-expert",
-  "main": "src/index.ts",
-  "compatibility_date": "2025-03-10",
-  "observability": {
-    "enabled": true
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "linear-expert",
-      "database_id": "86c77b94-afbb-4e1c-8b7d-df8961be5bee"
-    }
-  ],
-  "vars": {
-    "LINEAR_REDIRECT_URI": "https://linear-expert.placeapp.workers.dev/oauth/callback"
-  }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "linear-expert",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-03-09",
+	"observability": {
+		"enabled": true
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "linear-expert",
+			"database_id": "86c77b94-afbb-4e1c-8b7d-df8961be5bee"
+		}
+	],
+	"vars": {
+		"LINEAR_REDIRECT_URI": "https://linear-expert.placeapp.workers.dev/oauth/callback"
+	},
+	"preview_urls": false
 }

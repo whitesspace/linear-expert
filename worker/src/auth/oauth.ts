@@ -18,6 +18,14 @@ export function buildAuthorizeUrl(env: Env, state: string, scopes: string[] = ['
   return url.toString();
 }
 
+function buildTokenBody(params: Record<string, string>): string {
+  const body = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    body.set(key, value);
+  }
+  return body.toString();
+}
+
 export async function exchangeCodeForToken(code: string, env: Env) {
   if (!env.LINEAR_CLIENT_ID || !env.LINEAR_CLIENT_SECRET || !env.LINEAR_REDIRECT_URI) {
     throw new Error('Missing OAuth configuration');
@@ -25,8 +33,8 @@ export async function exchangeCodeForToken(code: string, env: Env) {
 
   const res = await fetch(LINEAR_TOKEN_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: buildTokenBody({
       grant_type: 'authorization_code',
       code,
       client_id: env.LINEAR_CLIENT_ID,
@@ -50,8 +58,8 @@ export async function refreshAccessToken(refreshToken: string, env: Env) {
 
   const res = await fetch(LINEAR_TOKEN_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: buildTokenBody({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
       client_id: env.LINEAR_CLIENT_ID,
