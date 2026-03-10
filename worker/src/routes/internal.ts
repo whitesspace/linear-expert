@@ -18,6 +18,8 @@ import {
   createIssue,
   createIssueRelation,
   getIssueByIdentifier,
+  listIssuesByNumbers,
+  listTeamStates,
   postComment,
   transitionIssueState,
   updateIssue,
@@ -206,6 +208,35 @@ async function handleCreateIssueRelation(request: Request, env: Env): Promise<Re
   return json({ ok: true, action: "create_relation", result });
 }
 
+const ListIssuesByNumbersRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  teamId: z.string().min(1),
+  numbers: z.array(z.number().int().positive()).min(1),
+});
+
+async function handleListIssuesByNumbers(request: Request, env: Env): Promise<Response> {
+  const payload = ListIssuesByNumbersRequestSchema.safeParse(await parseJson(request));
+  if (!payload.success) {
+    return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+  }
+  const result = await listIssuesByNumbers(env, payload.data.workspaceId, payload.data.teamId, payload.data.numbers);
+  return json({ ok: true, action: "list_issues_by_numbers", result });
+}
+
+const ListTeamStatesRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  teamId: z.string().min(1),
+});
+
+async function handleListTeamStates(request: Request, env: Env): Promise<Response> {
+  const payload = ListTeamStatesRequestSchema.safeParse(await parseJson(request));
+  if (!payload.success) {
+    return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+  }
+  const result = await listTeamStates(env, payload.data.workspaceId, payload.data.teamId);
+  return json({ ok: true, action: "list_team_states", result });
+}
+
 async function executeTaskAction(
   env: Env,
   workspaceId: string,
@@ -290,6 +321,14 @@ export async function handleInternalRequest(
 
   if (url.pathname === "/internal/linear/issues/relation" && request.method === "POST") {
     return handleCreateIssueRelation(request, env);
+  }
+
+  if (url.pathname === "/internal/linear/issues/list" && request.method === "POST") {
+    return handleListIssuesByNumbers(request, env);
+  }
+
+  if (url.pathname === "/internal/linear/team/states" && request.method === "POST") {
+    return handleListTeamStates(request, env);
   }
 
   const claimMatch = url.pathname.match(/^\/internal\/tasks\/(.+)\/claim$/);

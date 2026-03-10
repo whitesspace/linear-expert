@@ -182,7 +182,7 @@ export async function getIssueByIdentifier(env: Env, workspaceId: string, identi
           id
           identifier
           title
-          state { name }
+          state { id name }
           project { id name }
         }
       }`,
@@ -190,6 +190,67 @@ export async function getIssueByIdentifier(env: Env, workspaceId: string, identi
       accessToken
     );
     return { success: true, issue: data.issue };
+  });
+}
+
+export interface IssueStateResult {
+  id: string;
+  name: string;
+}
+
+export interface TeamStatesResult {
+  success: boolean;
+  states: IssueStateResult[];
+}
+
+export async function listTeamStates(env: Env, workspaceId: string, teamId: string) {
+  return withWorkspaceAccessToken<TeamStatesResult>(env, workspaceId, async (accessToken) => {
+    const data = await linearGraphql<{ team: { states: { nodes: IssueStateResult[] } } | null }>(
+      `query($teamId: String!) {
+        team(id: $teamId) {
+          states { nodes { id name } }
+        }
+      }`,
+      { teamId },
+      accessToken
+    );
+
+    return { success: true, states: data.team?.states.nodes ?? [] };
+  });
+}
+
+export interface IssueListItem {
+  id: string;
+  identifier: string;
+  title: string;
+  url?: string | null;
+  state: { id: string; name: string };
+}
+
+export interface IssuesByNumberResult {
+  success: boolean;
+  issues: IssueListItem[];
+}
+
+export async function listIssuesByNumbers(env: Env, workspaceId: string, teamId: string, numbers: number[]) {
+  return withWorkspaceAccessToken<IssuesByNumberResult>(env, workspaceId, async (accessToken) => {
+    const data = await linearGraphql<{ issues: { nodes: IssueListItem[] } }>(
+      `query($teamId: String!, $numbers: [Float!]!) {
+        issues(filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }) {
+          nodes {
+            id
+            identifier
+            title
+            url
+            state { id name }
+          }
+        }
+      }`,
+      { teamId, numbers },
+      accessToken
+    );
+
+    return { success: true, issues: data.issues.nodes };
   });
 }
 
