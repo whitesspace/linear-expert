@@ -27,7 +27,7 @@ import {
 } from "../linear/client";
 import { archiveProject, createProject, getProject, listProjects, updateProject } from "../linear/projects";
 import { triageList } from "../linear/triage";
-import { listInitiatives } from "../linear/initiatives";
+import { getInitiative, listInitiatives } from "../linear/initiatives";
 import type { StorageAdapter } from "../storage/types";
 
 const CommentRequestSchema = z.object({
@@ -69,6 +69,11 @@ const TriageListRequestSchema = z.object({
 const InitiativesListRequestSchema = z.object({
   workspaceId: z.string().min(1),
   limit: z.number().int().positive().max(100).optional(),
+});
+
+const InitiativesGetRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
 });
 
 export const TaskResultSchema = z.discriminatedUnion("action", [
@@ -522,6 +527,20 @@ export async function handleInternalRequest(
       return json({ ok: true, action: "initiatives_list", result });
     } catch (err) {
       console.error("initiatives_list error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/initiatives/get" && request.method === "POST") {
+    try {
+      const payload = InitiativesGetRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await getInitiative(env, payload.data.workspaceId, payload.data.id);
+      return json({ ok: true, action: "initiatives_get", result });
+    } catch (err) {
+      console.error("initiatives_get error:", err);
       return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
     }
   }

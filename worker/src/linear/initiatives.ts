@@ -45,3 +45,36 @@ export async function listInitiatives(env: Env, workspaceId: string, first: numb
     };
   });
 }
+
+export async function getInitiative(env: Env, workspaceId: string, id: string) {
+  return withWorkspaceAccessToken<{ success: boolean; initiative: InitiativeSummary | null }>(env, workspaceId, async (accessToken: string) => {
+    const { createLinearSdkClient } = await import("./sdk");
+    const client = createLinearSdkClient(accessToken);
+    const data: any = await sdkRequest<any>(
+      client,
+      `query($id: String!) {
+        initiative(id: $id) {
+          id
+          name
+          description
+          url
+          status
+        }
+      }`,
+      { id },
+    );
+    const i = data?.initiative;
+    return {
+      success: true,
+      initiative: i
+        ? {
+            id: i.id,
+            name: i.name,
+            description: i.description ?? null,
+            url: i.url ?? null,
+            status: i.status ?? null,
+          }
+        : null,
+    };
+  });
+}
