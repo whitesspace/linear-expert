@@ -123,15 +123,32 @@ linear-expert/
 - `POST /webhooks/linear`
   - 接收 Linear webhook
 
-### Internal（仅 OpenClaw 使用）
+### Internal（仅 OpenClaw / lec 使用）
+
+#### Tasks
 - `GET /internal/tasks?status=pending&limit=25`
 - `POST /internal/tasks/:id/claim`
 - `POST /internal/tasks/:id/result`
+
+#### Issues
 - `POST /internal/linear/comment`
 - `POST /internal/linear/issues/create`
+- `POST /internal/linear/issues/get`
 - `POST /internal/linear/issues/update`
 - `POST /internal/linear/issues/assign`
 - `POST /internal/linear/issues/state`
+- `POST /internal/linear/issues/project`（issue 加入 project）
+- `POST /internal/linear/issues/attachment`
+- `POST /internal/linear/issues/relation`
+
+#### Projects
+- `POST /internal/linear/resolve`（teamKey -> teamId/workspaceId）
+- `POST /internal/linear/team/projects`（列出 team 下 projects）
+- `POST /internal/linear/projects/list`
+- `POST /internal/linear/projects/get`
+- `POST /internal/linear/projects/create`
+- `POST /internal/linear/projects/update`
+- `POST /internal/linear/projects/delete`（archive 语义）
 
 这些正式 execution APIs 会逐步替代临时 debug 路径。
 
@@ -331,9 +348,29 @@ npm test
 
 ## 11. Roadmap（里程碑）
 
+### Initiatives（已接入）
+
+#### Worker routes（internal）
+- `POST /internal/linear/initiatives/list`
+- `POST /internal/linear/initiatives/get`
+- `POST /internal/linear/initiatives/create`
+- `POST /internal/linear/initiatives/update`
+- `POST /internal/linear/initiatives/archive`
+
+#### lec（thin wrapper）
+- `./scripts/lec initiatives list [--team WS] [--limit 25] [--json]`
+- `./scripts/lec initiatives get --id <initiativeId> [--team WS] [--json]`
+- `./scripts/lec initiatives create --title "<name>" [--description "..."] [--status "..."] [--team WS] [--json]`
+- `./scripts/lec initiatives update --id <initiativeId> [--title "..."] [--description "..."] [--status "..."] [--team WS] [--json]`
+- `./scripts/lec initiatives archive --id <initiativeId> [--team WS] [--json]`
+
+#### Smoke
+- `./scripts/lec-initiatives-smoke.sh`（create -> update -> archive）
+
+
 ### 已完成
 - OAuth app 授权 + D1 存储骨架
-- Internal execution APIs：Issues / Comments / Attachments / Relations / Projects CRUD / Resolve
+- Internal execution APIs：Issues / Comments / Attachments / Relations / Projects CRUD / Initiatives CRUD+Archive / Resolve
 - `lec` CLI + `lec-smoke.sh` 端到端验收脚本
 
 ### 进行中

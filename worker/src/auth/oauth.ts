@@ -1,9 +1,10 @@
 import type { Env } from '../types';
+import type { LinearOAuthTokenResponse } from './linear-oauth-types';
 
 const LINEAR_AUTH_BASE = 'https://linear.app/oauth/authorize';
 const LINEAR_TOKEN_URL = 'https://api.linear.app/oauth/token';
 
-export function buildAuthorizeUrl(env: Env, state: string, scopes: string[] = ['read', 'write', 'app:assignable', 'app:mentionable']): string {
+export function buildAuthorizeUrl(env: Env, state: string, scopes: string[] = ['read', 'write', 'app:assignable', 'app:mentionable', 'initiative:read', 'initiative:write', 'customer:read', 'customer:write']): string {
   if (!env.LINEAR_CLIENT_ID || !env.LINEAR_REDIRECT_URI) {
     throw new Error('Missing LINEAR_CLIENT_ID or LINEAR_REDIRECT_URI');
   }
@@ -26,7 +27,7 @@ function buildTokenBody(params: Record<string, string>): string {
   return body.toString();
 }
 
-export async function exchangeCodeForToken(code: string, env: Env) {
+export async function exchangeCodeForToken(code: string, env: Env): Promise<LinearOAuthTokenResponse> {
   if (!env.LINEAR_CLIENT_ID || !env.LINEAR_CLIENT_SECRET || !env.LINEAR_REDIRECT_URI) {
     throw new Error('Missing OAuth configuration');
   }
@@ -48,10 +49,10 @@ export async function exchangeCodeForToken(code: string, env: Env) {
     throw new Error(`OAuth token exchange failed: ${res.status} ${text}`);
   }
 
-  return res.json();
+  return res.json() as Promise<LinearOAuthTokenResponse>;
 }
 
-export async function refreshAccessToken(refreshToken: string, env: Env) {
+export async function refreshAccessToken(refreshToken: string, env: Env): Promise<LinearOAuthTokenResponse> {
   if (!env.LINEAR_CLIENT_ID || !env.LINEAR_CLIENT_SECRET) {
     throw new Error('Missing OAuth configuration');
   }
@@ -72,5 +73,5 @@ export async function refreshAccessToken(refreshToken: string, env: Env) {
     throw new Error(`OAuth token refresh failed: ${res.status} ${text}`);
   }
 
-  return res.json();
+  return res.json() as Promise<LinearOAuthTokenResponse>;
 }
