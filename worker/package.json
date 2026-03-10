@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@linear/sdk": "^77.0.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
