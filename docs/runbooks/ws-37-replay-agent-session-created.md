@@ -53,12 +53,10 @@ The response includes `traceId`.
 You can correlate later pipeline steps (future increments) via storage trace mapping:
 - traceId → `{ agentSessionId, workspaceId, eventType, createdAt }`
 
-In v0, this mapping is stored via `storage.trace.set(traceId, ...)` and is visible in logs when running locally.
+In v0, this mapping is stored via `storage.trace.set(traceId, ...)`.
 
-Local wrangler dev:
-- Look for log lines around the request timestamp and `traceId=...`.
+### Local (wrangler dev)
 
-## Notes
+- Look for log lines around the request timestamp.
+- Current v0 implementation persists trace mappings to D1 when using D1 storage.
 
-- This replay endpoint is **secret-protected** and should be enabled only in dev environments.
-- This endpoint does **not** execute Linear-native actions. It only validates invocation boundary + prompt derivation.

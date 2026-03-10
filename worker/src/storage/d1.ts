@@ -218,15 +218,32 @@ class D1OAuthStore implements OAuthStore {
 }
 
 class D1TraceStore implements TraceStore {
-  // Minimal stub for now: trace/session correlation is dev-focused until schema is added.
+  constructor(private db: D1Database) {}
+
   async set(
-    _traceId: string,
-    _record: { agentSessionId?: string; workspaceId?: string; eventType: string; createdAt: string },
+    traceId: string,
+    record: { agentSessionId?: string; workspaceId?: string; eventType: string; createdAt: string },
   ): Promise<void> {
-    // no-op
+    await this.db
+      .prepare(
+        `INSERT INTO invocation_traces (
+          trace_id,
+          agent_session_id,
+          workspace_id,
+          event_type,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(trace_id) DO UPDATE SET
+          agent_session_id = excluded.agent_session_id,
+          workspace_id = excluded.workspace_id,
+          event_type = excluded.event_type,
+          created_at = excluded.created_at`,
+      )
+      .bind(traceId, record.agentSessionId ?? null, record.workspaceId ?? null, record.eventType, record.createdAt)
+      .run();
   }
 
-  async get(_traceId: string): Promise<
+  async get(traceId: string): Promise<
     | {
         traceId: string;
         agentSessionId?: string;
@@ -236,7 +253,25 @@ class D1TraceStore implements TraceStore {
       }
     | null
   > {
-    return null;
+    const row = await this.db
+      .prepare(
+        `SELECT trace_id, agent_session_id, workspace_id, event_type, created_at
+         FROM invocation_traces
+         WHERE trace_id = ?
+         LIMIT 1`,
+      )
+      .bind(traceId)
+      .first();
+
+    if (!row) return null;
+
+    return {
+      traceId: row.trace_id as string,
+      agentSessionId: (row.agent_session_id as string | null) ?? undefined,
+      workspaceId: (row.workspace_id as string | null) ?? undefined,
+      eventType: row.event_type as string,
+      createdAt: row.created_at as string,
+    };
   }
 }
 
@@ -250,6 +285,6 @@ export class D1Storage implements StorageAdapter {
     this.tasks = new D1TaskStore(db);
     this.replies = new D1ReplyStore(db);
     this.oauth = new D1OAuthStore(db);
-    this.trace = new D1TraceStore();
+    this.trace = new D1TraceStore(db);
   }
 }
