@@ -394,6 +394,27 @@ export async function handleInternalRequest(
     return handleListTeamStates(request, env);
   }
 
+  if (url.pathname === "/internal/linear/team/projects" && request.method === "POST") {
+    const payload = z.object({ workspaceId: z.string().min(1), teamId: z.string().min(1) }).safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const { createLinearSdkClient, sdkRequest } = await import("../linear/sdk");
+    const { getStorage } = await import("../storage");
+    const storage = getStorage(env);
+    const token = await storage.oauth.get(payload.data.workspaceId);
+    if (!token?.accessToken) {
+      return json({ error: "no_oauth_token" }, { status: 401 });
+    }
+    const client = createLinearSdkClient(token.accessToken);
+    const data: any = await sdkRequest<any>(
+      client,
+      `query($teamId: String!) { team(id: $teamId) { projects { nodes { id name } } } }`,
+      { teamId: payload.data.teamId },
+    );
+    return json({ ok: true, projects: data?.team?.projects?.nodes ?? [] });
+  }
+
   const claimMatch = url.pathname.match(/^\/internal\/tasks\/(.+)\/claim$/);
   if (claimMatch && request.method === "POST") {
     return handleClaimTask(request, storage, claimMatch[1]);
