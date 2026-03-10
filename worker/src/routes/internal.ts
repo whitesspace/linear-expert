@@ -12,6 +12,7 @@ import {
   WorkspaceScopedSchema,
 } from "../linear/contracts";
 import {
+  addAttachment,
   addIssueToProject,
   assignIssue,
   createIssue,
@@ -172,6 +173,22 @@ async function handleGetIssue(request: Request, env: Env): Promise<Response> {
   return json({ ok: true, action: "get_issue", result });
 }
 
+const AddAttachmentRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  issueId: z.string().min(1),
+  title: z.string().min(1),
+  url: z.string().url(),
+});
+
+async function handleAddAttachment(request: Request, env: Env): Promise<Response> {
+  const payload = AddAttachmentRequestSchema.safeParse(await parseJson(request));
+  if (!payload.success) {
+    return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+  }
+  const result = await addAttachment(env, payload.data.workspaceId, payload.data);
+  return json({ ok: true, action: "add_attachment", result });
+}
+
 async function executeTaskAction(
   env: Env,
   workspaceId: string,
@@ -248,6 +265,10 @@ export async function handleInternalRequest(
 
   if (url.pathname === "/internal/linear/issues/get" && request.method === "POST") {
     return handleGetIssue(request, env);
+  }
+
+  if (url.pathname === "/internal/linear/issues/attachment" && request.method === "POST") {
+    return handleAddAttachment(request, env);
   }
 
   const claimMatch = url.pathname.match(/^\/internal\/tasks\/(.+)\/claim$/);

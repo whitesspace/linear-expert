@@ -192,3 +192,30 @@ export async function getIssueByIdentifier(env: Env, workspaceId: string, identi
     return { success: true, issue: data.issue };
   });
 }
+
+export interface AddAttachmentInput {
+  issueId: string;
+  title: string;
+  url: string;
+}
+
+export interface AttachmentResult {
+  success: boolean;
+  attachment: { id: string; title: string; url: string };
+}
+
+export async function addAttachment(env: Env, workspaceId: string, input: AddAttachmentInput) {
+  return withWorkspaceAccessToken<AttachmentResult>(env, workspaceId, async (accessToken) => {
+    const data = await linearGraphql<{ attachmentCreate: AttachmentResult }>(
+      `mutation($issueId: String!, $input: AttachmentCreateInput!) {
+        attachmentCreate(issueId: $issueId, input: $input) {
+          success
+          attachment { id title url }
+        }
+      }`,
+      { issueId: input.issueId, input: { title: input.title, url: input.url } },
+      accessToken
+    );
+    return data.attachmentCreate;
+  });
+}

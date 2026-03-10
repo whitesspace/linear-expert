@@ -43,10 +43,12 @@ const ACTIVE_EXECUTION_DOMAINS: LinearExecutionDomainPlan[] = [
 const PLANNED_EXECUTION_DOMAINS: LinearExecutionDomainPlan[] = [
   {
     domain: "attachments",
-    status: "planned",
+    status: "active",
     summary: "把外部分析结果、文档与 artefact 链接回写到 Linear。",
-    actions: ["create", "upsert_link"],
-    routes: [],
+    actions: ["create"],
+    routes: [
+      { action: "create", method: "POST", path: "/internal/linear/issues/attachment" },
+    ],
   },
   {
     domain: "relations",
@@ -58,7 +60,6 @@ const PLANNED_EXECUTION_DOMAINS: LinearExecutionDomainPlan[] = [
 ];
 
 const NEXT_CONCRETE_IMPLEMENTATION_STEPS = [
-  "新增 attachment 写入口，用于回填 OpenClaw 产出的文档与链接。",
   "为 relations 建立最小 mutation 集，覆盖 block / duplicate / related。",
 ];
 
