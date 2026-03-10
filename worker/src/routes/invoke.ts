@@ -253,6 +253,14 @@ export async function handleInvokeRequest(
       guidance: payload.data.guidance,
     });
 
+    // WS-37: keep replay endpoint consistent with production invocation by writing trace correlation too.
+    await storage.trace.set(traceId, {
+      agentSessionId: payload.data.agentSessionId,
+      workspaceId: payload.data.workspaceId,
+      eventType: payload.data.type,
+      createdAt: new Date().toISOString(),
+    });
+
     const body = InvokeResponseSchema.parse({
       ok: true,
       traceId,
@@ -260,6 +268,11 @@ export async function handleInvokeRequest(
         note: "WS-37: dev replay accepted; routed through invocation pipeline (no execution)",
         receivedType: payload.data.type,
         firstThoughtPrompt,
+        traceStore: {
+          wrote: true,
+          agentSessionId: payload.data.agentSessionId,
+          workspaceId: payload.data.workspaceId,
+        },
       },
     });
 

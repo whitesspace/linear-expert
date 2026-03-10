@@ -98,10 +98,16 @@ async function run() {
     assert.equal(json.ok, true);
     assert.ok(typeof json.traceId === "string" && json.traceId.length > 0);
 
-    const reserved = (json.reserved ?? {}) as { firstThoughtPrompt?: unknown };
+    const reserved = (json.reserved ?? {}) as {
+      firstThoughtPrompt?: unknown;
+      traceStore?: unknown;
+    };
     assert.ok(typeof reserved.firstThoughtPrompt === "string");
     assert.match(reserved.firstThoughtPrompt, /AgentSessionEvent\.created/);
     assert.match(reserved.firstThoughtPrompt, /WS-37/);
+
+    const traceStore = (reserved.traceStore ?? {}) as { wrote?: unknown };
+    assert.equal(traceStore.wrote, true);
   }
 
   // Invalid payload
