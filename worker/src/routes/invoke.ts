@@ -29,6 +29,7 @@ type FirstThoughtInput = {
   eventType: string;
   agentSessionId?: string;
   workspaceId?: string;
+  traceId?: string;
   promptContext?: unknown;
   issue?: unknown;
   guidance?: unknown;
@@ -71,13 +72,14 @@ function buildFirstThoughtPrompt(input: FirstThoughtInput): string {
     pickString(input.promptContext, ["latestComment", "body"]);
 
   const workspaceHint = input.workspaceId ? `workspace=${input.workspaceId}` : undefined;
-  const sessionHint = input.agentSessionId ? `agentSessionId=${input.agentSessionId}` : undefined;
+  const sessionHint = input.agentSessionId ? `agentSessionId=` : undefined;
+  const traceHint = input.traceId ? `traceId=` : undefined;
 
   const headerParts = [
     issueIdentifier && issueTitle ? `${issueIdentifier} — ${issueTitle}` : issueTitle || issueIdentifier,
     issueUrl,
-    workspaceHint,
-    sessionHint,
+    workspaceHint,    sessionHint,
+    traceHint,
   ].filter(Boolean);
 
   // Derive a concrete task statement from available context.
@@ -174,6 +176,7 @@ export async function handleInvokeRequest(
       eventType: payload.data.type,
       agentSessionId: payload.data.agentSessionId,
       workspaceId: payload.data.workspaceId,
+      traceId,
       promptContext: payload.data.promptContext,
       issue: payload.data.issue,
       guidance: payload.data.guidance,
@@ -208,9 +211,10 @@ export async function handleInvokeRequest(
     // For now we acknowledge and expose a derived prompt for stop/select/auth handling.
     const signalType = payload.data.type;
     const firstThoughtPrompt = buildFirstThoughtPrompt({
-      eventType: `signal:${signalType}`,
+      eventType: `signal:`,
       agentSessionId: payload.data.agentSessionId,
       workspaceId: payload.data.workspaceId,
+      traceId,
       promptContext: payload.data.data,
     });
 
