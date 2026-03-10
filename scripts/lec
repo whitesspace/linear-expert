@@ -31,6 +31,7 @@ function parseArgs(args) {
     else if (a === '--workspace') out.workspace = args[++i];
     else if (a === '--project') out.project = args[++i];
     else if (a === '--issue') out.issue = args[++i];
+    else if (a === '--id') out.id = args[++i];
     else if (a === '--title') out.title = args[++i];
     else if (a === '--description') out.description = args[++i];
     else if (a === '--body') out.body = args[++i];
@@ -430,6 +431,11 @@ async function main() {
       if (sub === 'list') return await cmdTriageList(flags);
     }
 
+    if (cmd === 'initiatives') {
+      if (sub === 'list') return await cmdInitiativesList(flags);
+      if (sub === 'get') return await cmdInitiativesGet(flags);
+    }
+
     fail(`Unknown command: ${flags._.join(' ')}`, 2);
   } catch (e) {
     const msg = e?.body ? `${e.message}\n${JSON.stringify(e.body, null, 2)}` : (e?.stack || String(e));
@@ -466,4 +472,29 @@ async function cmdTriageList(flags) {
     `count=${issues.length}`,
     ...issues.map((i) => `- ${i.identifier} ${i.title} [${i.state?.name ?? ''}]`),
   ]);
+}
+
+async function cmdInitiativesList(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  const body = { workspaceId, limit: Number.isFinite(flags.limit) ? flags.limit : 25 };
+  const r = await httpJson({ baseUrl, path: '/internal/linear/initiatives/list', secret, body, verbose: flags.verbose });
+  if (flags.json) return outJson(r);
+  const items = r?.result?.initiatives ?? [];
+  if (flags.plain) return outPlain(items.map((i) => `${i.id} ${i.name}`));
+  return outPlain([`count=${items.length}`, ...items.map((i) => `- ${i.name} (${i.status ?? ''})`)]);
+}
+
+async function cmdInitiativesGet(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.id) fail('--id required', 2);
+  const r = await httpJson({ baseUrl, path: '/internal/linear/initiatives/get', secret, body: { workspaceId, id: flags.id }, verbose: flags.verbose });
+  if (flags.json) return outJson(r);
+  const i = r?.result?.initiative;
+  return outPlain(i ? [`${i.name}`, `status=${i.status}`, `url=${i.url || ''}`] : ['null']);
 }
