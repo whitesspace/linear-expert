@@ -126,7 +126,12 @@ linear-expert/
 ### Internal（仅 OpenClaw / lec 使用）
 
 #### Invocation (WS-37)
-- `POST /internal/invoke/agent-session`（接收 Linear AgentSessionEvent.created 等；当前返回派生的 first-thought prompt，不执行任何 Linear actions）
+- `POST /internal/invoke/agent-session`
+  - 接收 Linear AgentSessionEvent.*（例如 `AgentSessionEvent.created`）
+  - 返回：`{ ok: true, traceId, reserved }`
+    - `traceId`：本次 invocation 的相关性 ID（并写入 traceStore 供后续关联）
+    - `reserved.firstThoughtPrompt`：根据 `promptContext/issue/guidance` 派生的 first-thought prompt（**不执行**任何 Linear actions）
+    - `reserved.traceStore`：回显本次写入的 `agentSessionId/workspaceId`（若 payload 提供）
 - `POST /internal/invoke/signal`（接收 stop/auth/select 等 signals；当前仅回显派生 prompt，不执行任何 Linear actions）
 
 #### Dev-only replay (WS-37)
