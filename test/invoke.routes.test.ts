@@ -53,9 +53,41 @@ async function run() {
     );
 
     assert.equal(res.status, 200);
-    const json = (await res.json()) as { ok: boolean; traceId: string };
+    const json = (await res.json()) as { ok: boolean; traceId: string; reserved?: any };
     assert.equal(json.ok, true);
     assert.ok(typeof json.traceId === "string" && json.traceId.length > 0);
+    assert.ok(typeof json.reserved?.firstThoughtPrompt === "string");
+  }
+
+  // Dev replay endpoint: secret-protected and runs through same pipeline shape
+  {
+    const res = await worker.fetch(
+      new Request("https://example.com/internal/invoke/replay/agent-session-created", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer internal_secret",
+        },
+        body: JSON.stringify({
+          type: "AgentSessionEvent.created",
+          agentSessionId: "as_test",
+          workspaceId: "ws_test",
+          issue: { identifier: "WS-37", title: "Overnight Coding", url: "https://linear.app/example/issue/WS-37" },
+          guidance: { text: "Keep it tight." },
+          promptContext: { comment: { body: "Please implement the replay endpoint." } },
+        }),
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+
+    assert.equal(res.status, 200);
+    const json = (await res.json()) as { ok: boolean; traceId: string; reserved?: any };
+    assert.equal(json.ok, true);
+    assert.ok(typeof json.traceId === "string" && json.traceId.length > 0);
+    assert.ok(typeof json.reserved?.firstThoughtPrompt === "string");
+    assert.match(json.reserved.firstThoughtPrompt, /AgentSessionEvent\.created/);
+    assert.match(json.reserved.firstThoughtPrompt, /WS-37/);
   }
 
   // Invalid payload

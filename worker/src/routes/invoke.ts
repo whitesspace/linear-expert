@@ -135,6 +135,27 @@ const InvokeResponseSchema = z.object({
   reserved: z.record(z.unknown()).optional(),
 });
 
+function getReplaySecret(env: Env): string | null {
+  // Dev-only safety: prefer an explicit secret so replay is never accidentally exposed.
+  // Fallback to OPENCLAW_INTERNAL_SECRET so local/dev can use the same auth mechanism.
+  // If both are missing, replay is disabled.
+  const v = (env as any).DEV_REPLAY_SECRET || env.OPENCLAW_INTERNAL_SECRET;
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+function assertReplaySecret(request: Request, env: Env): Response | null {
+  const secret = getReplaySecret(env);
+  if (!secret) {
+    return json({ error: "replay disabled" }, { status: 404 });
+  }
+  const header = request.headers.get("authorization") || "";
+  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
+  if (!token || token !== secret) {
+    return json({ error: "unauthorized" }, { status: 401 });
+  }
+  return null;
+}
+
 function makeTraceId(): string {
   // simple trace id; later: propagate from webhook headers or explicit field
   return `trace_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -191,6 +212,43 @@ export async function handleInvokeRequest(
       traceId,
       reserved: {
         note: "WS-37: invocation boundary reserved; first-thought prompt derived (no execution)",
+        receivedType: payload.data.type,
+        firstThoughtPrompt,
+      },
+    });
+
+    return json(body, { status: 200 });
+  }
+
+  // Dev-only: replay a simulated Linear AgentSessionEvent.created through the SAME pipeline.
+  // This route is secret-protected and intentionally does not require Linear signature.
+  if (url.pathname === "/internal/invoke/replay/agent-session-created" && request.method === "POST") {
+    const authError = assertReplaySecret(request, env);
+    if (authError) return authError;
+
+    const traceId = makeTraceId();
+
+    // Minimal deterministic payload; caller can override fields for richer context.
+    const payload = AgentSessionEventSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+
+    const firstThoughtPrompt = buildFirstThoughtPrompt({
+      eventType: payload.data.type || "AgentSessionEvent.created",
+      agentSessionId: payload.data.agentSessionId,
+      workspaceId: payload.data.workspaceId,
+      traceId,
+      promptContext: payload.data.promptContext,
+      issue: payload.data.issue,
+      guidance: payload.data.guidance,
+    });
+
+    const body = InvokeResponseSchema.parse({
+      ok: true,
+      traceId,
+      reserved: {
+        note: "WS-37: dev replay accepted; routed through invocation pipeline (no execution)",
         receivedType: payload.data.type,
         firstThoughtPrompt,
       },
