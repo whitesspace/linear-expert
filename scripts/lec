@@ -440,6 +440,10 @@ async function main() {
       if (sub === 'archive') return await cmdInitiativesArchive(flags);
     }
 
+    if (cmd === 'cycles') {
+      if (sub === 'list') return await cmdCyclesList(flags);
+    }
+
     fail(`Unknown command: ${flags._.join(' ')}`, 2);
   } catch (e) {
     const msg = e?.body ? `${e.message}\n${JSON.stringify(e.body, null, 2)}` : (e?.stack || String(e));
@@ -536,4 +540,17 @@ async function cmdInitiativesArchive(flags) {
   const r = await httpJson({ baseUrl, path: '/internal/linear/initiatives/archive', secret, body: { workspaceId, id: flags.id }, verbose: flags.verbose });
   if (flags.json) return outJson(r);
   return outPlain([JSON.stringify(r)]);
+}
+
+async function cmdCyclesList(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId, teamId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  const body = { workspaceId, teamId, limit: Number.isFinite(flags.limit) ? flags.limit : 25 };
+  const r = await httpJson({ baseUrl, path: '/internal/linear/cycles/list', secret, body, verbose: flags.verbose });
+  if (flags.json) return outJson(r);
+  const items = r?.result?.cycles ?? [];
+  if (flags.plain) return outPlain(items.map((c) => `${c.id} ${c.number ?? ''} ${c.name ?? ''}`.trim()));
+  return outPlain([`count=${items.length}`, ...items.map((c) => `- #${c.number ?? ''} ${c.name ?? ''}`.trim())]);
 }
