@@ -1,6 +1,7 @@
 import type { Env } from "./env";
 import { json } from "./lib/http";
 import { handleInternalRequest } from "./routes/internal";
+import { handleInvokeRequest } from "./routes/invoke";
 import { startOauth, oauthCallback } from "./routes/oauth";
 import { handleLinearWebhook } from "./routes/webhooks";
 import { handleDebugComment } from "./routes/debug";
@@ -39,6 +40,11 @@ export default {
 
     if (url.pathname === "/internal/debug/comment" && request.method === "POST") {
       return handleDebugComment(request, env);
+    }
+
+    const invokeResponse = await handleInvokeRequest(request, env, storage);
+    if (invokeResponse) {
+      return invokeResponse;
     }
 
     const internalResponse = await handleInternalRequest(request, env, storage);
