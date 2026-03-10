@@ -353,18 +353,23 @@ export interface AttachmentResult {
 
 export async function addAttachment(env: Env, workspaceId: string, input: AddAttachmentInput) {
   return withWorkspaceAccessToken<AttachmentResult>(env, workspaceId, async (accessToken) => {
+    type SdkCreateAttachmentPayload = {
+      success: boolean;
+      attachment?: { id: string; title: string; url: string } | null;
+    };
+
     const payload = await withSdkClient(accessToken, (client) => (client as any).createAttachment({
       issueId: input.issueId,
       title: input.title,
       url: input.url,
-    })) as any;
+    })) as SdkCreateAttachmentPayload;
 
     return {
-      success: Boolean((payload as any)?.success),
+      success: Boolean(payload?.success),
       attachment: {
-        id: (payload as any)?.attachment?.id ?? '',
-        title: (payload as any)?.attachment?.title ?? input.title,
-        url: (payload as any)?.attachment?.url ?? input.url,
+        id: payload?.attachment?.id ?? "",
+        title: payload?.attachment?.title ?? input.title,
+        url: payload?.attachment?.url ?? input.url,
       },
     };
   });
@@ -382,17 +387,22 @@ export interface IssueRelationResult {
 
 export async function createIssueRelation(env: Env, workspaceId: string, input: IssueRelationInput & { relationType: "blocks" | "duplicates" | "relates_to" }) {
   return withWorkspaceAccessToken<IssueRelationResult>(env, workspaceId, async (accessToken) => {
+    type SdkCreateIssueRelationPayload = {
+      success: boolean;
+      relation?: { id: string; type: string } | null;
+    };
+
     const payload = await withSdkClient(accessToken, (client) => (client as any).createIssueRelation({
       issueId: input.issueId,
       relatedIssueId: input.relatedIssueId,
       type: input.relationType as any,
-    })) as any;
+    })) as SdkCreateIssueRelationPayload;
 
     return {
-      success: Boolean((payload as any)?.success),
+      success: Boolean(payload?.success),
       relation: {
-        id: (payload as any)?.relation?.id ?? '',
-        type: (payload as any)?.relation?.type ?? input.relationType,
+        id: payload?.relation?.id ?? "",
+        type: payload?.relation?.type ?? input.relationType,
       },
     };
   });
