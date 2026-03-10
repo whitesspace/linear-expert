@@ -27,25 +27,19 @@ const ACTIVE_EXECUTION_DOMAINS: LinearExecutionDomainPlan[] = [
   {
     domain: "issues",
     status: "active",
-    summary: "负责 issue 创建、更新、指派与状态迁移。",
-    actions: ["create", "update", "assign", "transition"],
+    summary: "负责 issue 创建、更新、指派、状态迁移与项目关联。",
+    actions: ["create", "update", "assign", "transition", "add_to_project"],
     routes: [
       { action: "create", method: "POST", path: "/internal/linear/issues/create" },
       { action: "update", method: "POST", path: "/internal/linear/issues/update" },
       { action: "assign", method: "POST", path: "/internal/linear/issues/assign" },
       { action: "transition", method: "POST", path: "/internal/linear/issues/state" },
+      { action: "add_to_project", method: "POST", path: "/internal/linear/issues/project" },
     ],
   },
 ];
 
 const PLANNED_EXECUTION_DOMAINS: LinearExecutionDomainPlan[] = [
-  {
-    domain: "projects",
-    status: "planned",
-    summary: "让 Expert 能稳定地挂接项目、推进项目状态与负责人。",
-    actions: ["attach_issue", "update_status", "assign_lead"],
-    routes: [],
-  },
   {
     domain: "attachments",
     status: "planned",
@@ -63,7 +57,6 @@ const PLANNED_EXECUTION_DOMAINS: LinearExecutionDomainPlan[] = [
 ];
 
 const NEXT_CONCRETE_IMPLEMENTATION_STEPS = [
-  "定义 project execution contract，先支持 issue ↔ project 关联。",
   "补一层名称/标识符到 Linear id 的解析，避免调用方直接耦合底层 id。",
   "新增 attachment 写入口，用于回填 OpenClaw 产出的文档与链接。",
   "为 relations 建立最小 mutation 集，覆盖 block / duplicate / related。",

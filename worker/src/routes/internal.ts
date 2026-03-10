@@ -12,6 +12,7 @@ import {
   WorkspaceScopedSchema,
 } from "../linear/contracts";
 import {
+  addIssueToProject,
   assignIssue,
   createIssue,
   postComment,
@@ -35,6 +36,12 @@ const UpdateIssueRequestSchema = WorkspaceScopedSchema.extend(IssueUpdateFieldsS
 );
 const AssignIssueRequestSchema = WorkspaceScopedSchema.merge(AssignIssueInputSchema);
 const TransitionIssueRequestSchema = WorkspaceScopedSchema.merge(TransitionIssueInputSchema);
+
+const AddToProjectInputSchema = z.object({
+  issueId: z.string().min(1),
+  projectId: z.string().min(1),
+});
+const AddToProjectRequestSchema = WorkspaceScopedSchema.merge(AddToProjectInputSchema);
 
 export const TaskResultSchema = z.discriminatedUnion("action", [
   z.object({
@@ -141,6 +148,15 @@ async function handleTransitionIssue(request: Request, env: Env): Promise<Respon
   return json({ ok: true, action: "transition_issue", result });
 }
 
+async function handleAddToProject(request: Request, env: Env): Promise<Response> {
+  const payload = AddToProjectRequestSchema.safeParse(await parseJson(request));
+  if (!payload.success) {
+    return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+  }
+  const result = await addIssueToProject(env, payload.data.workspaceId, payload.data);
+  return json({ ok: true, action: "add_to_project", result });
+}
+
 async function executeTaskAction(
   env: Env,
   workspaceId: string,
@@ -209,6 +225,10 @@ export async function handleInternalRequest(
 
   if (url.pathname === "/internal/linear/issues/state" && request.method === "POST") {
     return handleTransitionIssue(request, env);
+  }
+
+  if (url.pathname === "/internal/linear/issues/project" && request.method === "POST") {
+    return handleAddToProject(request, env);
   }
 
   const claimMatch = url.pathname.match(/^\/internal\/tasks\/(.+)\/claim$/);

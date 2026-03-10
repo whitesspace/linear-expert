@@ -40,3 +40,10 @@ export const TransitionIssueInputSchema = z.object({
 });
 
 export type TransitionIssueInput = z.infer<typeof TransitionIssueInputSchema>;
+
+export const AddToProjectInputSchema = z.object({
+  issueId: z.string().min(1),
+  projectId: z.string().min(1),
+});
+
+export type AddToProjectInput = z.infer<typeof AddToProjectInputSchema>;

@@ -152,3 +152,19 @@ export async function transitionIssueState(env: Env, workspaceId: string, input:
     return data.issueUpdate;
   });
 }
+
+export interface AddToProjectInput {
+  issueId: string;
+  projectId: string;
+}
+
+export async function addIssueToProject(env: Env, workspaceId: string, input: AddToProjectInput) {
+  return withWorkspaceAccessToken<IssueResult>(env, workspaceId, async (accessToken) => {
+    const data = await linearGraphql<{ issueUpdate: IssueResult }>(
+      'mutation($id:String!,$input:IssueUpdateInput!){ issueUpdate(id:$id,input:$input){ success issue{ id identifier title url } } }',
+      { id: input.issueId, input: { projectId: input.projectId } },
+      accessToken
+    );
+    return data.issueUpdate;
+  });
+}
