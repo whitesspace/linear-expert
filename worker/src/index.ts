@@ -77,7 +77,10 @@ export default {
           internalClaim: "POST /internal/tasks/:id/claim",
           internalResult: "POST /internal/tasks/:id/result",
           ...getExecutionLayerRouteMap(),
-          debugComment: "POST /internal/debug/comment"
+          debugComment: "POST /internal/debug/comment",
+          invokeAgentSession: "POST /internal/invoke/agent-session",
+          invokeSignal: "POST /internal/invoke/signal",
+          invokeReplayCreated: "POST /internal/invoke/replay/agent-session-created (dev-only)"
         }
       }, { status: state.ready ? 200 : 503 });
     }
