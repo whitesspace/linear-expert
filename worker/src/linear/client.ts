@@ -56,6 +56,7 @@ export async function getInstallationIdentity(accessToken: string) {
     }
   }`;
 
+  // keep as raw GraphQL for now; migrated in WS-52 cleanup.
   return linearGraphql<{
     viewer?: { id: string; name: string };
     organization?: { id: string; name: string; urlKey?: string };
@@ -252,34 +253,35 @@ function parseIssueIdentifier(identifier: string): { teamKey: string; number: nu
 
 export async function getIssueByIdentifier(env: Env, workspaceId: string, identifier: string) {
   return withWorkspaceAccessToken<IssueByIdentifierResult>(env, workspaceId, async (accessToken) => {
-    const { teamKey, number } = parseIssueIdentifier(identifier);
+    return withSdkClient(accessToken, async (client) => {
+      const { teamKey, number } = parseIssueIdentifier(identifier);
+      const { sdkRequest } = await import("./sdk");
 
-    // 先把 team key 转成 team ID
-    const teamsData = await linearGraphql<{ teams: { nodes: Array<{ id: string; key: string }> } }>(
-      `query($teamKey: String!) {
-        teams(filter: { key: { eq: $teamKey } }) { nodes { id key } }
-      }`,
-      { teamKey },
-      accessToken,
-    );
+      const teamsData = await sdkRequest<any>(
+        client,
+        `query($teamKey: String!) {
+          teams(filter: { key: { eq: $teamKey } }) { nodes { id key } }
+        }`,
+        { teamKey },
+      );
 
-    const teamId = teamsData.teams.nodes[0]?.id;
-    if (!teamId) {
-      return { success: true, issue: null };
-    }
+      const teamId = teamsData.teams?.nodes?.[0]?.id;
+      if (!teamId) {
+        return { success: true, issue: null };
+      }
 
-    // 再用 team ID + number 查 issue
-    const data = await linearGraphql<{ issues: { nodes: IssueByIdentifierResult['issue'][] } }>(
-      `query($teamId: ID!, $numbers: [Float!]!) {
-        issues(filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }) {
-          nodes { id identifier title state { id name } project { id name } }
-        }
-      }`,
-      { teamId, numbers: [number] },
-      accessToken,
-    );
+      const issuesData = await sdkRequest<any>(
+        client,
+        `query($teamId: ID!, $numbers: [Float!]!) {
+          issues(filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }) {
+            nodes { id identifier title state { id name } project { id name } }
+          }
+        }`,
+        { teamId, numbers: [number] },
+      );
 
-    return { success: true, issue: data.issues.nodes[0] ?? null };
+      return { success: true, issue: issuesData.issues?.nodes?.[0] ?? null };
+    });
   });
 }
 
@@ -295,17 +297,20 @@ export interface TeamStatesResult {
 
 export async function listTeamStates(env: Env, workspaceId: string, teamId: string) {
   return withWorkspaceAccessToken<TeamStatesResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ team: { states: { nodes: IssueStateResult[] } } | null }>(
-      `query($teamId: String!) {
-        team(id: $teamId) {
-          states { nodes { id name } }
-        }
-      }`,
-      { teamId },
-      accessToken
-    );
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<any>(
+        client,
+        `query($teamId: String!) {
+          team(id: $teamId) {
+            states { nodes { id name } }
+          }
+        }`,
+        { teamId },
+      );
 
-    return { success: true, states: data.team?.states.nodes ?? [] };
+      return { success: true, states: data.team?.states?.nodes ?? [] };
+    });
   });
 }
 
@@ -324,23 +329,26 @@ export interface IssuesByNumberResult {
 
 export async function listIssuesByNumbers(env: Env, workspaceId: string, teamId: string, numbers: number[]) {
   return withWorkspaceAccessToken<IssuesByNumberResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ issues: { nodes: IssueListItem[] } }>(
-      `query($teamId: ID!, $numbers: [Float!]!) {
-        issues(filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }) {
-          nodes {
-            id
-            identifier
-            title
-            url
-            state { id name }
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<any>(
+        client,
+        `query($teamId: ID!, $numbers: [Float!]!) {
+          issues(filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }) {
+            nodes {
+              id
+              identifier
+              title
+              url
+              state { id name }
+            }
           }
-        }
-      }`,
-      { teamId, numbers },
-      accessToken
-    );
+        }`,
+        { teamId, numbers },
+      );
 
-    return { success: true, issues: data.issues.nodes };
+      return { success: true, issues: data.issues?.nodes ?? [] };
+    });
   });
 }
 
