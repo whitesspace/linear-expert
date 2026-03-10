@@ -28,7 +28,7 @@ import {
 import { archiveProject, createProject, getProject, listProjects, updateProject } from "../linear/projects";
 import { triageList } from "../linear/triage";
 import { archiveInitiative, createInitiative, getInitiative, listInitiatives, updateInitiative } from "../linear/initiatives";
-import { listCycles } from "../linear/cycles";
+import { archiveCycle, createCycle, getCycle, listCycles, updateCycle } from "../linear/cycles";
 import type { StorageAdapter } from "../storage/types";
 
 const CommentRequestSchema = z.object({
@@ -101,6 +101,32 @@ const CyclesListRequestSchema = z.object({
   workspaceId: z.string().min(1),
   teamId: z.string().min(1),
   limit: z.number().int().min(1).max(100).optional(),
+});
+
+const CyclesGetRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
+});
+
+const CyclesCreateRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  teamId: z.string().min(1),
+  startsAt: z.string().min(1),
+  endsAt: z.string().min(1),
+  name: z.string().optional().nullable(),
+});
+
+const CyclesUpdateRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
+  startsAt: z.string().optional(),
+  endsAt: z.string().optional(),
+  name: z.string().optional().nullable(),
+});
+
+const CyclesArchiveRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
 });
 
 export const TaskResultSchema = z.discriminatedUnion("action", [
@@ -653,6 +679,71 @@ export async function handleInternalRequest(
       return json({ ok: true, action: "cycles_list", result });
     } catch (err) {
       console.error("cycles_list error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/cycles/get" && request.method === "POST") {
+    try {
+      const payload = CyclesGetRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await getCycle(env, payload.data.workspaceId, payload.data.id);
+      return json({ ok: true, action: "cycles_get", result });
+    } catch (err) {
+      console.error("cycles_get error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/cycles/create" && request.method === "POST") {
+    try {
+      const payload = CyclesCreateRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await createCycle(env, payload.data.workspaceId, {
+        teamId: payload.data.teamId,
+        startsAt: payload.data.startsAt,
+        endsAt: payload.data.endsAt,
+        name: payload.data.name ?? null,
+      });
+      return json({ ok: true, action: "cycles_create", result });
+    } catch (err) {
+      console.error("cycles_create error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/cycles/update" && request.method === "POST") {
+    try {
+      const payload = CyclesUpdateRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await updateCycle(env, payload.data.workspaceId, payload.data.id, {
+        startsAt: payload.data.startsAt,
+        endsAt: payload.data.endsAt,
+        name: payload.data.name,
+      });
+      return json({ ok: true, action: "cycles_update", result });
+    } catch (err) {
+      console.error("cycles_update error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/cycles/archive" && request.method === "POST") {
+    try {
+      const payload = CyclesArchiveRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await archiveCycle(env, payload.data.workspaceId, payload.data.id);
+      return json({ ok: true, action: "cycles_archive", result });
+    } catch (err) {
+      console.error("cycles_archive error:", err);
       return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
     }
   }
