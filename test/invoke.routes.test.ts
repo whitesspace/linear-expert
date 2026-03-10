@@ -59,8 +59,16 @@ async function run() {
     assert.equal(json.ok, true);
     assert.ok(typeof json.traceId === "string" && json.traceId.length > 0);
 
-    const reserved = (json.reserved ?? {}) as { firstThoughtPrompt?: unknown };
+    const reserved = (json.reserved ?? {}) as {
+      firstThoughtPrompt?: unknown;
+      traceStore?: unknown;
+    };
     assert.ok(typeof reserved.firstThoughtPrompt === "string");
+
+    const traceStore = (reserved.traceStore ?? {}) as {
+      wrote?: unknown;
+    };
+    assert.equal(traceStore.wrote, true);
   }
 
   // Dev replay endpoint: secret-protected and runs through same pipeline shape
