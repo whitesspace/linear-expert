@@ -15,6 +15,7 @@ import {
   addIssueToProject,
   assignIssue,
   createIssue,
+  getIssueByIdentifier,
   postComment,
   transitionIssueState,
   updateIssue,
@@ -157,6 +158,20 @@ async function handleAddToProject(request: Request, env: Env): Promise<Response>
   return json({ ok: true, action: "add_to_project", result });
 }
 
+const GetIssueRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  identifier: z.string().min(1),
+});
+
+async function handleGetIssue(request: Request, env: Env): Promise<Response> {
+  const payload = GetIssueRequestSchema.safeParse(await parseJson(request));
+  if (!payload.success) {
+    return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+  }
+  const result = await getIssueByIdentifier(env, payload.data.workspaceId, payload.data.identifier);
+  return json({ ok: true, action: "get_issue", result });
+}
+
 async function executeTaskAction(
   env: Env,
   workspaceId: string,
@@ -229,6 +244,10 @@ export async function handleInternalRequest(
 
   if (url.pathname === "/internal/linear/issues/project" && request.method === "POST") {
     return handleAddToProject(request, env);
+  }
+
+  if (url.pathname === "/internal/linear/issues/get" && request.method === "POST") {
+    return handleGetIssue(request, env);
   }
 
   const claimMatch = url.pathname.match(/^\/internal\/tasks\/(.+)\/claim$/);

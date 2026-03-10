@@ -20,6 +20,11 @@ export interface IssueResult {
   issue: { id: string; identifier: string; title: string; url?: string | null };
 }
 
+export interface IssueByIdentifierResult {
+  success: boolean;
+  issue: { id: string; identifier: string; title: string; state: { name: string }; project: { id: string; name: string } | null } | null;
+}
+
 export async function linearGraphql<T>(query: string, variables: Record<string, unknown>, accessToken: string): Promise<T> {
   const res = await fetch(LINEAR_GRAPHQL_URL, {
     method: 'POST',
@@ -166,5 +171,24 @@ export async function addIssueToProject(env: Env, workspaceId: string, input: Ad
       accessToken
     );
     return data.issueUpdate;
+  });
+}
+
+export async function getIssueByIdentifier(env: Env, workspaceId: string, identifier: string) {
+  return withWorkspaceAccessToken<IssueByIdentifierResult>(env, workspaceId, async (accessToken) => {
+    const data = await linearGraphql<{ issue: IssueByIdentifierResult['issue'] }>(
+      `query($identifier: String!) {
+        issue(identifier: $identifier) {
+          id
+          identifier
+          title
+          state { name }
+          project { id name }
+        }
+      }`,
+      { identifier },
+      accessToken
+    );
+    return { success: true, issue: data.issue };
   });
 }
