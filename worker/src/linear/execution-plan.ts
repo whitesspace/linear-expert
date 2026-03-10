@@ -59,6 +59,30 @@ const PLANNED_EXECUTION_DOMAINS: LinearExecutionDomainPlan[] = [
       { action: "create", method: "POST", path: "/internal/linear/issues/relation" },
     ],
   },
+  {
+    domain: "projects",
+    status: "active",
+    summary: "Projects CRUD + project list/resolve（供 lec / internal 调用）。",
+    actions: ["list", "get", "create", "update", "delete", "team_projects", "resolve"],
+    routes: [
+      { action: "list", method: "POST", path: "/internal/linear/projects/list" },
+      { action: "get", method: "POST", path: "/internal/linear/projects/get" },
+      { action: "create", method: "POST", path: "/internal/linear/projects/create" },
+      { action: "update", method: "POST", path: "/internal/linear/projects/update" },
+      { action: "delete", method: "POST", path: "/internal/linear/projects/delete" },
+      { action: "team_projects", method: "POST", path: "/internal/linear/team/projects" },
+      { action: "resolve", method: "POST", path: "/internal/linear/resolve" }
+    ],
+  },
+  {
+    domain: "triage",
+    status: "planned",
+    summary: "Triage list（state=Triage）与处理动作闭环（assign/state/project 复用 issues 域）。",
+    actions: ["list"],
+    routes: [
+      { action: "list", method: "POST", path: "/internal/linear/triage/list" }
+    ],
+  }
 ];
 
 const NEXT_CONCRETE_IMPLEMENTATION_STEPS: string[] = [];
