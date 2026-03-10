@@ -174,11 +174,35 @@ export async function addIssueToProject(env: Env, workspaceId: string, input: Ad
   });
 }
 
+function parseIssueIdentifier(identifier: string): { teamKey: string; number: number } {
+  const [teamKey, rawNumber] = identifier.split("-");
+  const number = Number(rawNumber);
+  if (!teamKey || !Number.isFinite(number)) {
+    throw new Error(`Invalid issue identifier: ${identifier}`);
+  }
+  return { teamKey, number };
+}
+
 export async function getIssueByIdentifier(env: Env, workspaceId: string, identifier: string) {
   return withWorkspaceAccessToken<IssueByIdentifierResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ issue: IssueByIdentifierResult['issue'] }>(
-      `query($identifier: String!) {
-        issue(identifier: $identifier) {
+    const { teamKey, number } = parseIssueIdentifier(identifier);
+
+    const teamsData = await linearGraphql<{ teams: { nodes: Array<{ id: string; key: string }> } }>(
+      `query($teamKey: String!) {
+        teams(filter: { key: { eq: $teamKey } }) { nodes { id key } }
+      }`,
+      { teamKey },
+      accessToken,
+    );
+
+    const teamId = teamsData.teams.nodes[0]?.id;
+    if (!teamId) {
+      return { success: true, issue: null };
+    }
+
+    const data2 = await linearGraphql<{ issue: IssueByIdentifierResult['issue'] }>(
+      `query($teamId: String!, $number: Float!) {
+        issue: issueByNumber(teamId: $teamId, number: $number) {
           id
           identifier
           title
@@ -186,10 +210,11 @@ export async function getIssueByIdentifier(env: Env, workspaceId: string, identi
           project { id name }
         }
       }`,
-      { identifier },
-      accessToken
+      { teamId, number },
+      accessToken,
     );
-    return { success: true, issue: data.issue };
+
+    return { success: true, issue: data2.issue };
   });
 }
 
