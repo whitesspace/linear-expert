@@ -25,6 +25,7 @@ import {
   transitionIssueState,
   updateIssue,
 } from "../linear/client";
+import { archiveProject, createProject, getProject, listProjects, updateProject } from "../linear/projects";
 import type { StorageAdapter } from "../storage/types";
 
 const CommentRequestSchema = z.object({
@@ -296,6 +297,31 @@ async function handleListTeamStates(request: Request, env: Env): Promise<Respons
   return json({ ok: true, action: "list_team_states", result });
 }
 
+const ProjectsListRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  teamId: z.string().min(1),
+});
+const ProjectsGetRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  projectId: z.string().min(1),
+});
+const ProjectsCreateRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  teamId: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+});
+const ProjectsUpdateRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  projectId: z.string().min(1),
+  name: z.string().optional(),
+  description: z.string().optional(),
+});
+const ProjectsDeleteRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  projectId: z.string().min(1),
+});
+
 async function executeTaskAction(
   env: Env,
   workspaceId: string,
@@ -399,20 +425,61 @@ export async function handleInternalRequest(
     if (!payload.success) {
       return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
     }
-    const { createLinearSdkClient, sdkRequest } = await import("../linear/sdk");
-    const { getStorage } = await import("../storage");
-    const storage = getStorage(env);
-    const token = await storage.oauth.get(payload.data.workspaceId);
-    if (!token?.accessToken) {
-      return json({ error: "no_oauth_token" }, { status: 401 });
+    const result = await listProjects(env, payload.data.workspaceId, payload.data.teamId);
+    return json({ ok: true, projects: result.projects.map((p: any) => ({ id: p.id, name: p.name })) });
+  }
+
+  if (url.pathname === "/internal/linear/projects/list" && request.method === "POST") {
+    const payload = ProjectsListRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
     }
-    const client = createLinearSdkClient(token.accessToken);
-    const data: any = await sdkRequest<any>(
-      client,
-      `query($teamId: String!) { team(id: $teamId) { projects { nodes { id name } } } }`,
-      { teamId: payload.data.teamId },
-    );
-    return json({ ok: true, projects: data?.team?.projects?.nodes ?? [] });
+    const result = await listProjects(env, payload.data.workspaceId, payload.data.teamId);
+    return json({ ok: true, action: "projects_list", result });
+  }
+
+  if (url.pathname === "/internal/linear/projects/get" && request.method === "POST") {
+    const payload = ProjectsGetRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await getProject(env, payload.data.workspaceId, payload.data.projectId);
+    return json({ ok: true, action: "projects_get", result });
+  }
+
+  if (url.pathname === "/internal/linear/projects/create" && request.method === "POST") {
+    const payload = ProjectsCreateRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await createProject(env, payload.data.workspaceId, {
+      name: payload.data.name,
+      description: payload.data.description,
+      teamId: payload.data.teamId,
+    });
+    return json({ ok: true, action: "projects_create", result });
+  }
+
+  if (url.pathname === "/internal/linear/projects/update" && request.method === "POST") {
+    const payload = ProjectsUpdateRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await updateProject(env, payload.data.workspaceId, {
+      projectId: payload.data.projectId,
+      name: payload.data.name,
+      description: payload.data.description,
+    });
+    return json({ ok: true, action: "projects_update", result });
+  }
+
+  if (url.pathname === "/internal/linear/projects/delete" && request.method === "POST") {
+    const payload = ProjectsDeleteRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await archiveProject(env, payload.data.workspaceId, payload.data.projectId);
+    return json({ ok: true, action: "projects_delete", result });
   }
 
   const claimMatch = url.pathname.match(/^\/internal\/tasks\/(.+)\/claim$/);

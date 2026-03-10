@@ -83,7 +83,7 @@ async function getValidAccessToken(env: Env, workspaceId: string): Promise<strin
   return next.accessToken;
 }
 
-async function withWorkspaceAccessToken<T>(env: Env, workspaceId: string, fn: (accessToken: string) => Promise<T>): Promise<T> {
+export async function withWorkspaceAccessToken<T>(env: Env, workspaceId: string, fn: (accessToken: string) => Promise<T>): Promise<T> {
   const accessToken = await getValidAccessToken(env, workspaceId);
   return fn(accessToken);
 }
