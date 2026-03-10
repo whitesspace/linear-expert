@@ -115,14 +115,14 @@ export async function updateInitiative(env: Env, workspaceId: string, input: { i
 
     const data: any = await sdkRequest<any>(
       client,
-      `mutation($input: InitiativeUpdateInput!) {
-        initiativeUpdate(input: $input) {
+      `mutation($id: String!, $input: InitiativeUpdateInput!) {
+        initiativeUpdate(id: $id, input: $input) {
           success
         }
       }`,
       {
+        id: input.id,
         input: {
-          id: input.id,
           name: input.name ?? undefined,
           description: input.description === undefined ? undefined : input.description,
           status: input.status ?? undefined,
