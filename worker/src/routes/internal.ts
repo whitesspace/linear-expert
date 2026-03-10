@@ -27,6 +27,7 @@ import {
 } from "../linear/client";
 import { archiveProject, createProject, getProject, listProjects, updateProject } from "../linear/projects";
 import { triageList } from "../linear/triage";
+import { listInitiatives } from "../linear/initiatives";
 import type { StorageAdapter } from "../storage/types";
 
 const CommentRequestSchema = z.object({
@@ -62,6 +63,11 @@ const TriageListRequestSchema = z.object({
   stateName: z.string().min(1).optional(),
   excludeDone: z.boolean().optional(),
   excludeCancelled: z.boolean().optional(),
+  limit: z.number().int().positive().max(100).optional(),
+});
+
+const InitiativesListRequestSchema = z.object({
+  workspaceId: z.string().min(1),
   limit: z.number().int().positive().max(100).optional(),
 });
 
@@ -504,6 +510,15 @@ export async function handleInternalRequest(
       limit: payload.data.limit,
     });
     return json({ ok: true, action: "triage_list", result });
+  }
+
+  if (url.pathname === "/internal/linear/initiatives/list" && request.method === "POST") {
+    const payload = InitiativesListRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await listInitiatives(env, payload.data.workspaceId, payload.data.limit ?? 25);
+    return json({ ok: true, action: "initiatives_list", result });
   }
 
   const claimMatch = url.pathname.match(/^\/internal\/tasks\/(.+)\/claim$/);
