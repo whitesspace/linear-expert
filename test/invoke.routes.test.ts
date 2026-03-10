@@ -37,6 +37,8 @@ async function run() {
     assert.equal(json.error, "unauthorized");
   }
 
+  type InvokeResponse = { ok: boolean; traceId: string; reserved?: unknown };
+
   // Happy path: stub accepts minimal payload and returns ok + traceId
   {
     const res = await worker.fetch(
@@ -53,10 +55,12 @@ async function run() {
     );
 
     assert.equal(res.status, 200);
-    const json = (await res.json()) as { ok: boolean; traceId: string; reserved?: any };
+    const json = (await res.json()) as InvokeResponse;
     assert.equal(json.ok, true);
     assert.ok(typeof json.traceId === "string" && json.traceId.length > 0);
-    assert.ok(typeof json.reserved?.firstThoughtPrompt === "string");
+
+    const reserved = (json.reserved ?? {}) as { firstThoughtPrompt?: unknown };
+    assert.ok(typeof reserved.firstThoughtPrompt === "string");
   }
 
   // Dev replay endpoint: secret-protected and runs through same pipeline shape
@@ -82,12 +86,14 @@ async function run() {
     );
 
     assert.equal(res.status, 200);
-    const json = (await res.json()) as { ok: boolean; traceId: string; reserved?: any };
+    const json = (await res.json()) as InvokeResponse;
     assert.equal(json.ok, true);
     assert.ok(typeof json.traceId === "string" && json.traceId.length > 0);
-    assert.ok(typeof json.reserved?.firstThoughtPrompt === "string");
-    assert.match(json.reserved.firstThoughtPrompt, /AgentSessionEvent\.created/);
-    assert.match(json.reserved.firstThoughtPrompt, /WS-37/);
+
+    const reserved = (json.reserved ?? {}) as { firstThoughtPrompt?: unknown };
+    assert.ok(typeof reserved.firstThoughtPrompt === "string");
+    assert.match(reserved.firstThoughtPrompt, /AgentSessionEvent\.created/);
+    assert.match(reserved.firstThoughtPrompt, /WS-37/);
   }
 
   // Invalid payload
