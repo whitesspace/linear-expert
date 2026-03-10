@@ -7,7 +7,7 @@ import type {
   TaskRecord,
   TaskResultPatch,
 } from "../domain/task";
-import type { OAuthStore, ReplyStore, StorageAdapter, TaskStore } from "./types";
+import type { OAuthStore, ReplyStore, StorageAdapter, TaskStore, TraceStore } from "./types";
 
 const ISO = () => new Date().toISOString();
 
@@ -217,14 +217,39 @@ class D1OAuthStore implements OAuthStore {
   }
 }
 
+class D1TraceStore implements TraceStore {
+  // Minimal stub for now: trace/session correlation is dev-focused until schema is added.
+  async set(
+    _traceId: string,
+    _record: { agentSessionId?: string; workspaceId?: string; eventType: string; createdAt: string },
+  ): Promise<void> {
+    // no-op
+  }
+
+  async get(_traceId: string): Promise<
+    | {
+        traceId: string;
+        agentSessionId?: string;
+        workspaceId?: string;
+        eventType: string;
+        createdAt: string;
+      }
+    | null
+  > {
+    return null;
+  }
+}
+
 export class D1Storage implements StorageAdapter {
   readonly tasks: TaskStore;
   readonly replies: ReplyStore;
   readonly oauth: OAuthStore;
+  readonly trace: TraceStore;
 
   constructor(db: D1Database) {
     this.tasks = new D1TaskStore(db);
     this.replies = new D1ReplyStore(db);
     this.oauth = new D1OAuthStore(db);
+    this.trace = new D1TraceStore();
   }
 }

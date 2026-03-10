@@ -203,9 +203,13 @@ export async function handleInvokeRequest(
       guidance: payload.data.guidance,
     });
 
-    // Reserved: write to storage for audit and fan out to orchestrator.
-    // NOTE: storage adapter might persist trace/session mapping in future.
-    void storage;
+    // WS-37: write trace -> agentSessionId/workspaceId map for later correlation.
+    await storage.trace.set(traceId, {
+      agentSessionId: payload.data.agentSessionId,
+      workspaceId: payload.data.workspaceId,
+      eventType: payload.data.type,
+      createdAt: new Date().toISOString(),
+    });
 
     const body = InvokeResponseSchema.parse({
       ok: true,
@@ -214,6 +218,11 @@ export async function handleInvokeRequest(
         note: "WS-37: invocation boundary reserved; first-thought prompt derived (no execution)",
         receivedType: payload.data.type,
         firstThoughtPrompt,
+        traceStore: {
+          wrote: true,
+          agentSessionId: payload.data.agentSessionId,
+          workspaceId: payload.data.workspaceId,
+        },
       },
     });
 
