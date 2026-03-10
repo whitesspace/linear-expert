@@ -18,10 +18,103 @@ const AgentSessionEventSchema = z.object({
   createdAt: z.string().min(1).optional(),
   agentSessionId: z.string().min(1).optional(),
   workspaceId: z.string().min(1).optional(),
-  // NOTE: real payload contains richer structures like promptContext, issue, comment, guidance, etc.
-  // We keep this loose for now to avoid coupling during the reservation stage.
+  // Linear webhook payload includes promptContext and often issue + guidance.
+  // Keep flexible but structured enough to derive a real first-thought prompt.
   promptContext: z.unknown().optional(),
+  issue: z.unknown().optional(),
+  guidance: z.unknown().optional(),
 });
+
+type FirstThoughtInput = {
+  eventType: string;
+  agentSessionId?: string;
+  workspaceId?: string;
+  promptContext?: unknown;
+  issue?: unknown;
+  guidance?: unknown;
+};
+
+function pickString(obj: unknown, path: string[]): string | undefined {
+  let cur: any = obj;
+  for (const key of path) {
+    if (cur && typeof cur === "object" && key in cur) cur = (cur as any)[key];
+    else return undefined;
+  }
+  if (typeof cur === "string") return cur.trim() || undefined;
+  return undefined;
+}
+
+function buildFirstThoughtPrompt(input: FirstThoughtInput): string {
+  const issueTitle =
+    pickString(input.issue, ["title"]) ||
+    pickString(input.promptContext, ["issue", "title"]) ||
+    pickString(input.promptContext, ["issue", "name"]);
+
+  const issueIdentifier =
+    pickString(input.issue, ["identifier"]) ||
+    pickString(input.promptContext, ["issue", "identifier"]);
+
+  const issueUrl =
+    pickString(input.issue, ["url"]) ||
+    pickString(input.promptContext, ["issue", "url"]) ||
+    pickString(input.promptContext, ["issue", "externalUrl"]);
+
+  const guidanceText =
+    pickString(input.guidance, ["text"]) ||
+    pickString(input.promptContext, ["guidance"]) ||
+    pickString(input.promptContext, ["guidance", "text"]);
+
+  const recentComment =
+    pickString(input.promptContext, ["comment", "body"]) ||
+    pickString(input.promptContext, ["comment", "text"]) ||
+    pickString(input.promptContext, ["comment"]) ||
+    pickString(input.promptContext, ["latestComment", "body"]);
+
+  const workspaceHint = input.workspaceId ? `workspace=${input.workspaceId}` : undefined;
+  const sessionHint = input.agentSessionId ? `agentSessionId=${input.agentSessionId}` : undefined;
+
+  const headerParts = [
+    issueIdentifier && issueTitle ? `${issueIdentifier} — ${issueTitle}` : issueTitle || issueIdentifier,
+    issueUrl,
+    workspaceHint,
+    sessionHint,
+  ].filter(Boolean);
+
+  // Derive a concrete task statement from available context.
+  const task =
+    pickString(input.promptContext, ["task"]) ||
+    pickString(input.promptContext, ["intent"]) ||
+    pickString(input.promptContext, ["userRequest"]) ||
+    (recentComment ? `Respond to the latest comment and take appropriate Linear-native actions.` : undefined) ||
+    `Handle AgentSessionEvent type=${input.eventType}.`;
+
+  const sourceHints: string[] = [];
+  if (guidanceText) sourceHints.push("guidance");
+  if (recentComment) sourceHints.push("comment");
+  if (issueTitle || issueIdentifier) sourceHints.push("issue");
+  if (sourceHints.length === 0) sourceHints.push("event");
+
+  const lines = [
+    "You are the Linear Expert agent invoked by a Linear AgentSessionEvent.",
+    headerParts.length ? `Context: ${headerParts.join(" | ")}` : "Context: (no issue metadata provided)",
+    `Sources present: ${sourceHints.join(", ")}.`,
+    "",
+    "Objective (first 10s): emit a concise thought activity that reflects the real issue context.",
+    "Do NOT execute actions yet in this step; only outline intent + immediate next check.",
+    "",
+    `Task: ${task}`,
+  ];
+
+  if (guidanceText) {
+    lines.push("", "Guidance:", guidanceText);
+  }
+
+  if (recentComment) {
+    lines.push("", "Latest user comment:", recentComment);
+  }
+
+  return lines.join("\n").trim();
+}
 
 const InvokeSignalSchema = z.object({
   // Reserved signal types for future orchestration.
@@ -64,11 +157,8 @@ export async function handleInvokeRequest(
   if (!url.pathname.startsWith("/internal/invoke")) return null;
 
   // Internal-only; same auth as execution layer.
-  try {
-    assertInternalSecret(request, env);
-  } catch (error) {
-    return json({ error: "unauthorized" }, { status: 401 });
-  }
+  const authError = assertInternalSecret(request, env);
+  if (authError) return authError;
 
   if (url.pathname === "/internal/invoke/agent-session" && request.method === "POST") {
     const payload = AgentSessionEventSchema.safeParse(await parseJson(request));
@@ -76,19 +166,30 @@ export async function handleInvokeRequest(
       return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
     }
 
-    // WS-37: Stub behavior.
-    // Required by AIG: respond quickly (<5s). In future we will emit a thought activity within 10s.
     const traceId = makeTraceId();
 
-    // Future reserved: write to storage for audit and fan out to real invocation orchestrator.
-    void storage; // reserved
+    // WS-37 increment: produce a *real* first-thought prompt content derived from promptContext/issue.
+    // We still avoid execution actions here (strict boundary).
+    const firstThoughtPrompt = buildFirstThoughtPrompt({
+      eventType: payload.data.type,
+      agentSessionId: payload.data.agentSessionId,
+      workspaceId: payload.data.workspaceId,
+      promptContext: payload.data.promptContext,
+      issue: payload.data.issue,
+      guidance: payload.data.guidance,
+    });
+
+    // Reserved: write to storage for audit and fan out to orchestrator.
+    // NOTE: storage adapter might persist trace/session mapping in future.
+    void storage;
 
     const body = InvokeResponseSchema.parse({
       ok: true,
       traceId,
       reserved: {
-        note: "WS-37 stub: invocation boundary reserved; no session writes yet",
+        note: "WS-37: invocation boundary reserved; first-thought prompt derived (no execution)",
         receivedType: payload.data.type,
+        firstThoughtPrompt,
       },
     });
 
@@ -103,13 +204,24 @@ export async function handleInvokeRequest(
     }
 
     const traceId = makeTraceId();
+    // Signals are invocation-only; execution layer must not interpret them.
+    // For now we acknowledge and expose a derived prompt for stop/select/auth handling.
+    const signalType = payload.data.type;
+    const firstThoughtPrompt = buildFirstThoughtPrompt({
+      eventType: `signal:${signalType}`,
+      agentSessionId: payload.data.agentSessionId,
+      workspaceId: payload.data.workspaceId,
+      promptContext: payload.data.data,
+    });
+
     return json(
       {
         ok: true,
         traceId,
         reserved: {
-          note: "WS-37 stub: signal handling reserved",
-          receivedType: payload.data.type,
+          note: "WS-37: signal boundary reserved; prompt derived (no execution)",
+          receivedType: signalType,
+          firstThoughtPrompt,
         },
       },
       { status: 200 },
