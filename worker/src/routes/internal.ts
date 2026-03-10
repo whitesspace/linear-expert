@@ -513,12 +513,17 @@ export async function handleInternalRequest(
   }
 
   if (url.pathname === "/internal/linear/initiatives/list" && request.method === "POST") {
-    const payload = InitiativesListRequestSchema.safeParse(await parseJson(request));
-    if (!payload.success) {
-      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    try {
+      const payload = InitiativesListRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await listInitiatives(env, payload.data.workspaceId, payload.data.limit ?? 25);
+      return json({ ok: true, action: "initiatives_list", result });
+    } catch (err) {
+      console.error("initiatives_list error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
     }
-    const result = await listInitiatives(env, payload.data.workspaceId, payload.data.limit ?? 25);
-    return json({ ok: true, action: "initiatives_list", result });
   }
 
   const claimMatch = url.pathname.match(/^\/internal\/tasks\/(.+)\/claim$/);
