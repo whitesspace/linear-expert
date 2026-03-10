@@ -78,3 +78,77 @@ export async function getInitiative(env: Env, workspaceId: string, id: string) {
     };
   });
 }
+
+export async function createInitiative(env: Env, workspaceId: string, input: { name: string; description?: string | null; status?: string | null }) {
+  return withWorkspaceAccessToken<{ success: boolean; initiativeId: string | null }>(env, workspaceId, async (accessToken: string) => {
+    const { createLinearSdkClient } = await import("./sdk");
+    const client = createLinearSdkClient(accessToken);
+
+    const data: any = await sdkRequest<any>(
+      client,
+      `mutation($input: InitiativeCreateInput!) {
+        initiativeCreate(input: $input) {
+          success
+          initiative {
+            id
+          }
+        }
+      }`,
+      {
+        input: {
+          name: input.name,
+          description: input.description ?? undefined,
+          status: input.status ?? undefined,
+        },
+      },
+    );
+
+    const payload = data?.initiativeCreate;
+    return { success: !!payload?.success, initiativeId: payload?.initiative?.id ?? null };
+  });
+}
+
+export async function updateInitiative(env: Env, workspaceId: string, input: { id: string; name?: string; description?: string | null; status?: string | null }) {
+  return withWorkspaceAccessToken<{ success: boolean }>(env, workspaceId, async (accessToken: string) => {
+    const { createLinearSdkClient } = await import("./sdk");
+    const client = createLinearSdkClient(accessToken);
+
+    const data: any = await sdkRequest<any>(
+      client,
+      `mutation($input: InitiativeUpdateInput!) {
+        initiativeUpdate(input: $input) {
+          success
+        }
+      }`,
+      {
+        input: {
+          id: input.id,
+          name: input.name ?? undefined,
+          description: input.description === undefined ? undefined : input.description,
+          status: input.status ?? undefined,
+        },
+      },
+    );
+
+    return { success: !!data?.initiativeUpdate?.success };
+  });
+}
+
+export async function archiveInitiative(env: Env, workspaceId: string, id: string) {
+  return withWorkspaceAccessToken<{ success: boolean }>(env, workspaceId, async (accessToken: string) => {
+    const { createLinearSdkClient } = await import("./sdk");
+    const client = createLinearSdkClient(accessToken);
+
+    const data: any = await sdkRequest<any>(
+      client,
+      `mutation($id: String!) {
+        initiativeArchive(id: $id) {
+          success
+        }
+      }`,
+      { id },
+    );
+
+    return { success: !!data?.initiativeArchive?.success };
+  });
+}
