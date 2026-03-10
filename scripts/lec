@@ -458,6 +458,10 @@ async function main() {
       if (sub === 'list') return await cmdCyclesList(flags);
     }
 
+    if (cmd === 'labels') {
+      if (sub === 'list') return await cmdLabelsList(flags);
+    }
+
     fail(`Unknown command: ${flags._.join(' ')}`, 2);
   } catch (e) {
     const msg = e?.body ? `${e.message}\n${JSON.stringify(e.body, null, 2)}` : (e?.stack || String(e));
@@ -567,4 +571,17 @@ async function cmdCyclesList(flags) {
   const items = r?.result?.cycles ?? [];
   if (flags.plain) return outPlain(items.map((c) => `${c.id} ${c.number ?? ''} ${c.name ?? ''}`.trim()));
   return outPlain([`count=${items.length}`, ...items.map((c) => `- #${c.number ?? ''} ${c.name ?? ''}`.trim())]);
+}
+
+async function cmdLabelsList(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  const body = { workspaceId, limit: Number.isFinite(flags.limit) ? flags.limit : 25 };
+  const r = await httpJson({ baseUrl, path: '/internal/linear/labels/list', secret, body, verbose: flags.verbose });
+  if (flags.json) return outJson(r);
+  const items = r?.result?.labels ?? [];
+  if (flags.plain) return outPlain(items.map((l) => `${l.id} ${l.name}`));
+  return outPlain([`count=${items.length}`, ...items.map((l) => `- ${l.name}`)]);
 }
