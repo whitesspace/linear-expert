@@ -61,7 +61,7 @@ const PLANNED_EXECUTION_DOMAINS: LinearExecutionDomainPlan[] = [
   },
 ];
 
-const NEXT_CONCRETE_IMPLEMENTATION_STEPS = [];
+const NEXT_CONCRETE_IMPLEMENTATION_STEPS: string[] = [];
 
 export function getExecutionLayerPlan() {
   return {

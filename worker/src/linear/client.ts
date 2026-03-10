@@ -364,14 +364,14 @@ export async function addAttachment(env: Env, workspaceId: string, input: AddAtt
       issueId: input.issueId,
       title: input.title,
       url: input.url,
-    }));
+    })) as any;
 
     return {
-      success: Boolean(payload.success),
+      success: Boolean((payload as any)?.success),
       attachment: {
-        id: payload.attachment?.id ?? '',
-        title: payload.attachment?.title ?? input.title,
-        url: payload.attachment?.url ?? input.url,
+        id: (payload as any)?.attachment?.id ?? '',
+        title: (payload as any)?.attachment?.title ?? input.title,
+        url: (payload as any)?.attachment?.url ?? input.url,
       },
     };
   });
@@ -393,13 +393,13 @@ export async function createIssueRelation(env: Env, workspaceId: string, input: 
       issueId: input.issueId,
       relatedIssueId: input.relatedIssueId,
       type: input.relationType as any,
-    }));
+    })) as any;
 
     return {
-      success: Boolean(payload.success),
+      success: Boolean((payload as any)?.success),
       relation: {
-        id: payload.relation?.id ?? '',
-        type: payload.relation?.type ?? input.relationType,
+        id: (payload as any)?.relation?.id ?? '',
+        type: (payload as any)?.relation?.type ?? input.relationType,
       },
     };
   });
