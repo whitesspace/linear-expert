@@ -187,6 +187,7 @@ export async function getIssueByIdentifier(env: Env, workspaceId: string, identi
   return withWorkspaceAccessToken<IssueByIdentifierResult>(env, workspaceId, async (accessToken) => {
     const { teamKey, number } = parseIssueIdentifier(identifier);
 
+    // 先把 team key 转成 team ID
     const teamsData = await linearGraphql<{ teams: { nodes: Array<{ id: string; key: string }> } }>(
       `query($teamKey: String!) {
         teams(filter: { key: { eq: $teamKey } }) { nodes { id key } }
@@ -200,21 +201,18 @@ export async function getIssueByIdentifier(env: Env, workspaceId: string, identi
       return { success: true, issue: null };
     }
 
-    const data2 = await linearGraphql<{ issue: IssueByIdentifierResult['issue'] }>(
-      `query($teamId: String!, $number: Float!) {
-        issue: issueByNumber(teamId: $teamId, number: $number) {
-          id
-          identifier
-          title
-          state { id name }
-          project { id name }
+    // 再用 team ID + number 查 issue
+    const data = await linearGraphql<{ issues: { nodes: IssueByIdentifierResult['issue'][] } }>(
+      `query($teamId: ID!, $numbers: [Float!]!) {
+        issues(filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }) {
+          nodes { id identifier title state { id name } project { id name } }
         }
       }`,
-      { teamId, number },
+      { teamId, numbers: [number] },
       accessToken,
     );
 
-    return { success: true, issue: data2.issue };
+    return { success: true, issue: data.issues.nodes[0] ?? null };
   });
 }
 
@@ -231,7 +229,7 @@ export interface TeamStatesResult {
 export async function listTeamStates(env: Env, workspaceId: string, teamId: string) {
   return withWorkspaceAccessToken<TeamStatesResult>(env, workspaceId, async (accessToken) => {
     const data = await linearGraphql<{ team: { states: { nodes: IssueStateResult[] } } | null }>(
-      `query($teamId: String!) {
+      `query($teamId: ID!) {
         team(id: $teamId) {
           states { nodes { id name } }
         }
@@ -260,7 +258,7 @@ export interface IssuesByNumberResult {
 export async function listIssuesByNumbers(env: Env, workspaceId: string, teamId: string, numbers: number[]) {
   return withWorkspaceAccessToken<IssuesByNumberResult>(env, workspaceId, async (accessToken) => {
     const data = await linearGraphql<{ issues: { nodes: IssueListItem[] } }>(
-      `query($teamId: String!, $numbers: [Float!]!) {
+      `query($teamId: ID!, $numbers: [Float!]!) {
         issues(filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }) {
           nodes {
             id
