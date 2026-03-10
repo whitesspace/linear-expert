@@ -4,6 +4,7 @@ import { handleInternalRequest } from "./routes/internal";
 import { startOauth, oauthCallback } from "./routes/oauth";
 import { handleLinearWebhook } from "./routes/webhooks";
 import { handleDebugComment } from "./routes/debug";
+import { getExecutionLayerPlan, getExecutionLayerRouteMap } from "./linear/execution-plan";
 import { getStorage } from "./storage";
 import { APP_CONFIG, missingSecrets } from "./env";
 
@@ -46,6 +47,7 @@ export default {
     }
 
     const state = readiness(env);
+    const executionLayer = getExecutionLayerPlan();
 
     if (url.pathname === "/healthz" && request.method === "GET") {
       return json({
@@ -60,6 +62,7 @@ export default {
           d1DatabaseId: APP_CONFIG.d1DatabaseId
         },
         notes: state,
+        executionLayer,
         routes: {
           oauthStart: "GET /oauth/start",
           oauthCallback: "GET /oauth/callback",
@@ -67,11 +70,7 @@ export default {
           internalList: "GET /internal/tasks?status=pending&limit=25",
           internalClaim: "POST /internal/tasks/:id/claim",
           internalResult: "POST /internal/tasks/:id/result",
-          internalLinearComment: "POST /internal/linear/comment",
-          internalLinearCreateIssue: "POST /internal/linear/issues/create",
-          internalLinearUpdateIssue: "POST /internal/linear/issues/update",
-          internalLinearAssignIssue: "POST /internal/linear/issues/assign",
-          internalLinearStateIssue: "POST /internal/linear/issues/state",
+          ...getExecutionLayerRouteMap(),
           debugComment: "POST /internal/debug/comment"
         }
       }, { status: state.ready ? 200 : 503 });

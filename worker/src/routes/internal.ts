@@ -4,6 +4,14 @@ import { assertInternalSecret } from "../auth/internal";
 import type { TaskResultAction, TaskStatus } from "../domain/task";
 import { json } from "../lib/http";
 import {
+  AssignIssueInputSchema,
+  IssueCreateInputSchema,
+  IssueUpdateFieldsSchema,
+  IssueUpdateInputSchema,
+  TransitionIssueInputSchema,
+  WorkspaceScopedSchema,
+} from "../linear/contracts";
+import {
   assignIssue,
   createIssue,
   postComment,
@@ -18,35 +26,17 @@ const CommentRequestSchema = z.object({
   body: z.string().min(1),
 });
 
-const CreateIssueRequestSchema = z.object({
-  workspaceId: z.string().min(1),
-  teamId: z.string().min(1),
-  title: z.string().min(1),
-  description: z.string().optional(),
-  projectId: z.string().optional(),
-});
+const CreateIssueRequestSchema = WorkspaceScopedSchema.merge(IssueCreateInputSchema);
+const UpdateIssueRequestSchema = WorkspaceScopedSchema.extend(IssueUpdateFieldsSchema.shape).refine(
+  (value) => value.title !== undefined || value.description !== undefined || value.projectId !== undefined,
+  {
+    message: "update_issue requires at least one field to update",
+  },
+);
+const AssignIssueRequestSchema = WorkspaceScopedSchema.merge(AssignIssueInputSchema);
+const TransitionIssueRequestSchema = WorkspaceScopedSchema.merge(TransitionIssueInputSchema);
 
-const UpdateIssueRequestSchema = z.object({
-  workspaceId: z.string().min(1),
-  issueId: z.string().min(1),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  projectId: z.string().optional(),
-});
-
-const AssignIssueRequestSchema = z.object({
-  workspaceId: z.string().min(1),
-  issueId: z.string().min(1),
-  assigneeId: z.string().min(1),
-});
-
-const TransitionIssueRequestSchema = z.object({
-  workspaceId: z.string().min(1),
-  issueId: z.string().min(1),
-  stateId: z.string().min(1),
-});
-
-const TaskResultSchema = z.discriminatedUnion("action", [
+export const TaskResultSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("reply"),
     replyBody: z.string().min(1),
@@ -54,40 +44,22 @@ const TaskResultSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("create_issue"),
-    issue: z.object({
-      teamId: z.string().min(1),
-      title: z.string().min(1),
-      description: z.string().optional(),
-      projectId: z.string().optional(),
-    }),
+    issue: IssueCreateInputSchema,
     reason: z.string().optional(),
   }),
   z.object({
     action: z.literal("update_issue"),
-    issue: z.object({
-      issueId: z.string().min(1),
-      title: z.string().optional(),
-      description: z.string().optional(),
-      projectId: z.string().optional(),
-    }).refine((value) => value.title !== undefined || value.description !== undefined || value.projectId !== undefined, {
-      message: "update_issue requires at least one field to update",
-    }),
+    issue: IssueUpdateInputSchema,
     reason: z.string().optional(),
   }),
   z.object({
     action: z.literal("assign_issue"),
-    issue: z.object({
-      issueId: z.string().min(1),
-      assigneeId: z.string().min(1),
-    }),
+    issue: AssignIssueInputSchema,
     reason: z.string().optional(),
   }),
   z.object({
     action: z.literal("transition_issue"),
-    issue: z.object({
-      issueId: z.string().min(1),
-      stateId: z.string().min(1),
-    }),
+    issue: TransitionIssueInputSchema,
     reason: z.string().optional(),
   }),
   z.object({
@@ -137,12 +109,8 @@ async function handleCreateIssue(request: Request, env: Env): Promise<Response> 
   if (!payload.success) {
     return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
   }
-  const result = await createIssue(env, payload.data.workspaceId, {
-    teamId: payload.data.teamId,
-    title: payload.data.title,
-    description: payload.data.description,
-    projectId: payload.data.projectId,
-  });
+  const { workspaceId, ...issueInput } = payload.data;
+  const result = await createIssue(env, workspaceId, issueInput);
   return json({ ok: true, action: "create_issue", result });
 }
 
@@ -150,9 +118,6 @@ async function handleUpdateIssue(request: Request, env: Env): Promise<Response> 
   const payload = UpdateIssueRequestSchema.safeParse(await parseJson(request));
   if (!payload.success) {
     return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
-  }
-  if (payload.data.title === undefined && payload.data.description === undefined && payload.data.projectId === undefined) {
-    return json({ error: "invalid payload", details: { formErrors: ["at least one mutable field is required"] } }, { status: 400 });
   }
   const result = await updateIssue(env, payload.data.workspaceId, payload.data);
   return json({ ok: true, action: "update_issue", result });
@@ -176,14 +141,19 @@ async function handleTransitionIssue(request: Request, env: Env): Promise<Respon
   return json({ ok: true, action: "transition_issue", result });
 }
 
-async function executeTaskAction(env: Env, workspaceId: string, taskId: string, parsed: z.infer<typeof TaskResultSchema>) {
+async function executeTaskAction(
+  env: Env,
+  workspaceId: string,
+  targetIssueId: string,
+  parsed: z.infer<typeof TaskResultSchema>,
+) {
   let replyBody: string | null = null;
   let linearResult: LinearMutationResult | null = null;
 
   switch (parsed.action) {
     case "reply":
       replyBody = parsed.replyBody;
-      linearResult = await postComment(env, workspaceId, taskId, parsed.replyBody);
+      linearResult = await postComment(env, workspaceId, targetIssueId, parsed.replyBody);
       break;
     case "create_issue":
       linearResult = await createIssue(env, workspaceId, parsed.issue);

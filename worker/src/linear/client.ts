@@ -1,6 +1,12 @@
 import type { Env } from '../types';
 import { getStorage } from '../storage';
 import { refreshAccessToken } from '../auth/oauth';
+import type {
+  AssignIssueInput,
+  CreateIssueInput,
+  TransitionIssueInput,
+  UpdateIssueInput,
+} from './contracts';
 
 const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
 
@@ -12,30 +18,6 @@ export interface CommentResult {
 export interface IssueResult {
   success: boolean;
   issue: { id: string; identifier: string; title: string; url?: string | null };
-}
-
-export interface UpdateIssueInput {
-  issueId: string;
-  title?: string;
-  description?: string;
-  projectId?: string;
-}
-
-export interface CreateIssueInput {
-  teamId: string;
-  title: string;
-  description?: string;
-  projectId?: string;
-}
-
-export interface AssignIssueInput {
-  issueId: string;
-  assigneeId: string;
-}
-
-export interface TransitionIssueInput {
-  issueId: string;
-  stateId: string;
 }
 
 export async function linearGraphql<T>(query: string, variables: Record<string, unknown>, accessToken: string): Promise<T> {

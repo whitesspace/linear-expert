@@ -3,7 +3,9 @@ import { spawnSync } from 'node:child_process';
 const tests = [
   'test/storage.memory.test.ts',
   'test/schemas.test.ts',
-  'test/signature.test.ts'
+  'test/signature.test.ts',
+  'test/internal.routes.test.ts',
+  'test/healthz.test.ts'
 ];
 
 for (const file of tests) {
