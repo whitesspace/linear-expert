@@ -310,9 +310,29 @@ npm test
 
 ## 11. Roadmap（里程碑）
 
+### Initiatives（已接入）
+
+#### Worker routes（internal）
+- `POST /internal/linear/initiatives/list`
+- `POST /internal/linear/initiatives/get`
+- `POST /internal/linear/initiatives/create`
+- `POST /internal/linear/initiatives/update`
+- `POST /internal/linear/initiatives/archive`
+
+#### lec（thin wrapper）
+- `./scripts/lec initiatives list [--team WS] [--limit 25] [--json]`
+- `./scripts/lec initiatives get --id <initiativeId> [--team WS] [--json]`
+- `./scripts/lec initiatives create --title "<name>" [--description "..."] [--status "..."] [--team WS] [--json]`
+- `./scripts/lec initiatives update --id <initiativeId> [--title "..."] [--description "..."] [--status "..."] [--team WS] [--json]`
+- `./scripts/lec initiatives archive --id <initiativeId> [--team WS] [--json]`
+
+#### Smoke
+- `./scripts/lec-initiatives-smoke.sh`（create -> update -> archive）
+
+
 ### 已完成
 - OAuth app 授权 + D1 存储骨架
-- Internal execution APIs：Issues / Comments / Attachments / Relations / Projects CRUD / Resolve
+- Internal execution APIs：Issues / Comments / Attachments / Relations / Projects CRUD / Initiatives CRUD+Archive / Resolve
 - `lec` CLI + `lec-smoke.sh` 端到端验收脚本
 
 ### 进行中
