@@ -1,3 +1,4 @@
+import { LinearClient } from '@linear/sdk';
 import type { Env } from '../types';
 import { getStorage } from '../storage';
 import { refreshAccessToken } from '../auth/oauth';
@@ -100,12 +101,15 @@ async function withWorkspaceAccessToken<T>(env: Env, workspaceId: string, fn: (a
 
 export async function postComment(env: Env, workspaceId: string, issueId: string, body: string) {
   return withWorkspaceAccessToken<CommentResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ commentCreate: CommentResult }>(
-      'mutation($issueId:String!,$body:String!){ commentCreate(input:{issueId:$issueId, body:$body}){ success comment{ id body } } }',
-      { issueId, body },
-      accessToken
-    );
-    return data.commentCreate;
+    const client = new LinearClient({ accessToken });
+    const payload = await client.createComment({ issueId, body });
+    return {
+      success: Boolean(payload.success),
+      comment: {
+        id: payload.comment?.id ?? '',
+        body: payload.comment?.body ?? body,
+      },
+    };
   });
 }
 
