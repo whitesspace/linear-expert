@@ -35,11 +35,14 @@ function parseArgs(args) {
     else if (a === '--description') out.description = args[++i];
     else if (a === '--body') out.body = args[++i];
     else if (a === '--assignee') out.assignee = args[++i];
-    else if (a === '--state') out.state = args[++i];
     else if (a === '--url') out.url = args[++i];
     else if (a === '--label') { (out.labels ??= []).push(args[++i]); }
     else if (a === '--relation') out.relation = args[++i];
     else if (a === '--target') out.target = args[++i];
+    else if (a === '--limit') out.limit = Number(args[++i]);
+    else if (a === '--state') out.state = args[++i];
+    else if (a === '--exclude-done') out.excludeDone = true;
+    else if (a === '--exclude-cancelled') out.excludeCancelled = true;
     else {
       (out.unknown ??= []).push(a);
     }
@@ -386,6 +389,10 @@ async function main() {
       if (sub === 'delete') return await cmdProjectDelete(flags);
     }
 
+    if (cmd === 'triage') {
+      if (sub === 'list') return await cmdTriageList(flags);
+    }
+
     fail(`Unknown command: ${flags._.join(' ')}`, 2);
   } catch (e) {
     const msg = e?.body ? `${e.message}\n${JSON.stringify(e.body, null, 2)}` : (e?.stack || String(e));
@@ -395,3 +402,31 @@ async function main() {
 }
 
 main();
+
+async function cmdTriageList(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId, teamId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+
+  const body = {
+    workspaceId,
+    teamId,
+    stateName: flags.state || 'Triage',
+    limit: Number.isFinite(flags.limit) ? flags.limit : 25,
+    excludeDone: flags.excludeDone ?? true,
+    excludeCancelled: flags.excludeCancelled ?? true,
+  };
+
+  const r = await httpJson({ baseUrl, path: '/internal/linear/triage/list', secret, body, verbose: flags.verbose });
+  if (flags.json) return outJson(r);
+
+  const issues = r?.result?.issues ?? [];
+  if (flags.plain) {
+    return outPlain(issues.map((i) => `${i.identifier} ${i.title}`));
+  }
+  return outPlain([
+    `count=${issues.length}`,
+    ...issues.map((i) => `- ${i.identifier} ${i.title} [${i.state?.name ?? ''}]`),
+  ]);
+}

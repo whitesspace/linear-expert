@@ -26,7 +26,7 @@ async function run() {
   );
   assert.deepEqual(
     body.executionLayer.plannedDomains.map((item) => item.domain),
-    ["attachments", "relations"],
+    ["attachments", "relations", "projects", "triage"],
   );
   assert.equal(body.executionLayer.nextSteps.length, 0);
   assert.equal(body.routes.internalLinearIssuesCreate, "POST /internal/linear/issues/create");

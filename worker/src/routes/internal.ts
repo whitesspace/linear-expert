@@ -26,6 +26,7 @@ import {
   updateIssue,
 } from "../linear/client";
 import { archiveProject, createProject, getProject, listProjects, updateProject } from "../linear/projects";
+import { triageList } from "../linear/triage";
 import type { StorageAdapter } from "../storage/types";
 
 const CommentRequestSchema = z.object({
@@ -53,6 +54,15 @@ const AddToProjectRequestSchema = WorkspaceScopedSchema.merge(AddToProjectInputS
 const ResolveRequestSchema = z.object({
   teamKey: z.string().min(1),
   workspaceId: z.string().min(1).optional(),
+});
+
+const TriageListRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  teamId: z.string().min(1),
+  stateName: z.string().min(1).optional(),
+  excludeDone: z.boolean().optional(),
+  excludeCancelled: z.boolean().optional(),
+  limit: z.number().int().positive().max(100).optional(),
 });
 
 export const TaskResultSchema = z.discriminatedUnion("action", [
@@ -480,6 +490,20 @@ export async function handleInternalRequest(
     }
     const result = await archiveProject(env, payload.data.workspaceId, payload.data.projectId);
     return json({ ok: true, action: "projects_delete", result });
+  }
+
+  if (url.pathname === "/internal/linear/triage/list" && request.method === "POST") {
+    const payload = TriageListRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await triageList(env, payload.data.workspaceId, payload.data.teamId, {
+      stateName: payload.data.stateName,
+      excludeDone: payload.data.excludeDone ?? true,
+      excludeCancelled: payload.data.excludeCancelled ?? true,
+      limit: payload.data.limit,
+    });
+    return json({ ok: true, action: "triage_list", result });
   }
 
   const claimMatch = url.pathname.match(/^\/internal\/tasks\/(.+)\/claim$/);
