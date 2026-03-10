@@ -402,7 +402,18 @@ export async function createIssueRelation(env: Env, workspaceId: string, input: 
             success
           }
         }`,
-        { input: { issueId: input.issueId, relatedIssueId: input.relatedIssueId, type: input.relationType } },
+        {
+          input: {
+            issueId: input.issueId,
+            relatedIssueId: input.relatedIssueId,
+            type:
+              input.relationType === "relates_to"
+                ? "related"
+                : input.relationType === "duplicates"
+                  ? "duplicate"
+                  : input.relationType,
+          },
+        },
       );
       return data.issueRelationCreate;
     }) as SdkCreateIssueRelationPayload;
