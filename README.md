@@ -308,33 +308,24 @@ npm test
 
 ---
 
-## 11. 未来 Roadmap
+## 11. Roadmap（里程碑）
 
-### v0.1（当前目标）
-- Worker 可部署
-- OAuth app 可授权
-- webhook 可接收
-- task 可落库
-- OpenClaw 可拉任务
-- Worker 可 app-actor comment 回 Linear
+### 已完成
+- OAuth app 授权 + D1 存储骨架
+- Internal execution APIs：Issues / Comments / Attachments / Relations / Projects CRUD / Resolve
+- `lec` CLI + `lec-smoke.sh` 端到端验收脚本
 
-### v0.2
-- 更完整的 D1 migrations
-- 更强的 idempotency / retries
-- 更完整的 webhook event coverage
-- 更好的 internal observability
-- 对接 Linear `agent-interaction` / `agent session events`（计划中，留到下一轮推进）
+### 进行中
+- Contracts/错误码/返回结构进一步收敛（减少调用方猜字段）
+- 稳健性：幂等 key、重试、超时与更好的错误日志
+- CI：对 `main` 强制跑 `./scripts/lec-smoke.sh` + worker typecheck/tests
+- OpenClaw pull 侧与 webhook/task 的真实闭环跑通（生产实测）
 
-### v0.3
-- 自动状态更新
-- 自动 assign / routing
-- 更细的 per-project / per-team 行为规则
-- 人工审批/确认钩子
-
-### v0.4+
-- 多 workspace 支持
-- richer Expert personas / routing
-- more explicit audit trail / moderation layer
+### 后续
+- 更完整的 webhook event coverage（更多事件类型与边界情况）
+- 自动状态更新 / 自动 assign / routing
+- Multi-workspace 支持
+- 扩对象域：Initiatives / Cycles / Labels / Triage / Templates 等（按需求优先级逐个接入）
 
 ---
 
