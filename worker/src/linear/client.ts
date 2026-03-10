@@ -311,6 +311,11 @@ export interface IssueListItem {
   state: { id: string; name: string };
 }
 
+export interface IssueChildrenResult {
+  success: boolean;
+  issues: IssueListItem[];
+}
+
 export interface IssuesByNumberResult {
   success: boolean;
   issues: IssueListItem[];
@@ -337,6 +342,28 @@ export async function listIssuesByNumbers(env: Env, workspaceId: string, teamId:
       );
 
       return { success: true, issues: data.issues?.nodes ?? [] };
+    });
+  });
+}
+
+export async function listIssueChildren(env: Env, workspaceId: string, issueId: string, first = 50) {
+  return withWorkspaceAccessToken<IssueChildrenResult>(env, workspaceId, async (accessToken) => {
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<any>(
+        client,
+        `query($id: String!, $first: Int!) {
+          issue(id: $id) {
+            id
+            children(first: $first) {
+              nodes { id identifier title url state { id name } }
+            }
+          }
+        }`,
+        { id: issueId, first },
+      );
+
+      return { success: true, issues: data.issue?.children?.nodes ?? [] };
     });
   });
 }

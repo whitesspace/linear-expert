@@ -28,6 +28,7 @@ import {
 import { archiveProject, createProject, getProject, listProjects, updateProject } from "../linear/projects";
 import { triageList } from "../linear/triage";
 import { archiveInitiative, createInitiative, getInitiative, listInitiatives, updateInitiative } from "../linear/initiatives";
+import { listCycles } from "../linear/cycles";
 import type { StorageAdapter } from "../storage/types";
 
 const CommentRequestSchema = z.object({
@@ -94,6 +95,12 @@ const InitiativesUpdateRequestSchema = z.object({
 const InitiativesArchiveRequestSchema = z.object({
   workspaceId: z.string().min(1),
   id: z.string().min(1),
+});
+
+const CyclesListRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  teamId: z.string().min(1),
+  limit: z.number().int().min(1).max(100).optional(),
 });
 
 export const TaskResultSchema = z.discriminatedUnion("action", [
@@ -263,6 +270,12 @@ const GetIssueRequestSchema = z.object({
   identifier: z.string().min(1),
 });
 
+const IssueChildrenRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  issueId: z.string().min(1),
+  first: z.number().int().positive().max(100).optional(),
+});
+
 async function handleGetIssue(request: Request, env: Env): Promise<Response> {
   const payload = GetIssueRequestSchema.safeParse(await parseJson(request));
   if (!payload.success) {
@@ -270,6 +283,16 @@ async function handleGetIssue(request: Request, env: Env): Promise<Response> {
   }
   const result = await getIssueByIdentifier(env, payload.data.workspaceId, payload.data.identifier);
   return json({ ok: true, action: "get_issue", result });
+}
+
+async function handleListIssueChildren(request: Request, env: Env): Promise<Response> {
+  const payload = IssueChildrenRequestSchema.safeParse(await parseJson(request));
+  if (!payload.success) {
+    return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+  }
+  const { listIssueChildren } = await import("../linear/client");
+  const result = await listIssueChildren(env, payload.data.workspaceId, payload.data.issueId, payload.data.first ?? 50);
+  return json({ ok: true, action: "issue_children", result });
 }
 
 const AddAttachmentRequestSchema = z.object({
@@ -439,6 +462,10 @@ export async function handleInternalRequest(
 
   if (url.pathname === "/internal/linear/issues/get" && request.method === "POST") {
     return handleGetIssue(request, env);
+  }
+
+  if (url.pathname === "/internal/linear/issues/children" && request.method === "POST") {
+    return handleListIssueChildren(request, env);
   }
 
   if (url.pathname === "/internal/linear/resolve" && request.method === "POST") {
@@ -612,6 +639,20 @@ export async function handleInternalRequest(
       return json({ ok: true, action: "initiatives_archive", result });
     } catch (err) {
       console.error("initiatives_archive error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/cycles/list" && request.method === "POST") {
+    try {
+      const payload = CyclesListRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await listCycles(env, payload.data.workspaceId, payload.data.teamId, payload.data.limit ?? 25);
+      return json({ ok: true, action: "cycles_list", result });
+    } catch (err) {
+      console.error("cycles_list error:", err);
       return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
     }
   }
