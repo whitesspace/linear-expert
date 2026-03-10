@@ -386,11 +386,11 @@ export async function addAttachment(env: Env, workspaceId: string, input: AddAtt
       attachment?: { id: string; title: string; url: string } | null;
     };
 
-    const payload = await withSdkClient(accessToken, (client) => (client as any).createAttachment({
+    const payload = (await withSdkClient(accessToken, (client) => (client as any).createAttachment({
       issueId: input.issueId,
       title: input.title,
       url: input.url,
-    })) as SdkCreateAttachmentPayload;
+    }))) as SdkCreateAttachmentPayload;
 
     return {
       success: Boolean(payload?.success),
