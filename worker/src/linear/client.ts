@@ -1,3 +1,4 @@
+import type { LinearClient as LinearClientType } from '@linear/sdk';
 import type { Env } from '../types';
 import { getStorage } from '../storage';
 import { refreshAccessToken } from '../auth/oauth';
@@ -44,21 +45,17 @@ export async function linearGraphql<T>(query: string, variables: Record<string, 
 
 export async function getInstallationIdentity(accessToken: string) {
   const query = `query InstallationIdentity {
-    viewer {
-      id
-      name
-    }
-    organization {
-      id
-      name
-      urlKey
-    }
+    viewer { id name }
+    organization { id name urlKey }
   }`;
 
-  return linearGraphql<{
-    viewer?: { id: string; name: string };
-    organization?: { id: string; name: string; urlKey?: string };
-  }>(query, {}, accessToken);
+  return withSdkClient(accessToken, async (client) => {
+    const { sdkRequest } = await import('./sdk');
+    return sdkRequest<{
+      viewer?: { id: string; name: string };
+      organization?: { id: string; name: string; urlKey?: string };
+    }>(client, query, {});
+  });
 }
 
 async function getValidAccessToken(env: Env, workspaceId: string): Promise<string> {
@@ -98,25 +95,55 @@ async function withWorkspaceAccessToken<T>(env: Env, workspaceId: string, fn: (a
   return fn(accessToken);
 }
 
+async function withSdkClient<T>(accessToken: string, fn: (client: any) => Promise<T>): Promise<T> {
+  const mod = await import("@linear/sdk");
+  const Client = mod.LinearClient as any;
+  const client = new Client({ accessToken });
+  return fn(client);
+}
+
 export async function postComment(env: Env, workspaceId: string, issueId: string, body: string) {
   return withWorkspaceAccessToken<CommentResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ commentCreate: CommentResult }>(
-      'mutation($issueId:String!,$body:String!){ commentCreate(input:{issueId:$issueId, body:$body}){ success comment{ id body } } }',
-      { issueId, body },
-      accessToken
-    );
-    return data.commentCreate;
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<any>(
+        client,
+        `mutation($issueId: String!, $body: String!) {
+          commentCreate(input: { issueId: $issueId, body: $body }) {
+            success
+            comment { id body }
+          }
+        }`,
+        { issueId, body },
+      );
+      return {
+        success: Boolean(data.commentCreate?.success),
+        comment: {
+          id: data.commentCreate?.comment?.id ?? "",
+          body: data.commentCreate?.comment?.body ?? body,
+        },
+      };
+    });
   });
 }
 
 export async function createIssue(env: Env, workspaceId: string, input: CreateIssueInput) {
   return withWorkspaceAccessToken<IssueResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ issueCreate: IssueResult }>(
-      'mutation($input:IssueCreateInput!){ issueCreate(input:$input){ success issue{ id identifier title url } } }',
-      { input },
-      accessToken
-    );
-    return data.issueCreate;
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<any>(
+        client,
+        `mutation($input: IssueCreateInput!) {
+          issueCreate(input: $input) {
+            success
+            issue { id identifier title url }
+          }
+        }`,
+        { input },
+      );
+
+      return data.issueCreate as IssueResult;
+    });
   });
 }
 
@@ -127,34 +154,61 @@ export async function updateIssue(env: Env, workspaceId: string, input: UpdateIs
   if (input.projectId !== undefined) patch.projectId = input.projectId;
 
   return withWorkspaceAccessToken<IssueResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ issueUpdate: IssueResult }>(
-      'mutation($id:String!,$input:IssueUpdateInput!){ issueUpdate(id:$id,input:$input){ success issue{ id identifier title url } } }',
-      { id: input.issueId, input: patch },
-      accessToken
-    );
-    return data.issueUpdate;
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<any>(
+        client,
+        `mutation($id: String!, $input: IssueUpdateInput!) {
+          issueUpdate(id: $id, input: $input) {
+            success
+            issue { id identifier title url }
+          }
+        }`,
+        { id: input.issueId, input: patch },
+      );
+
+      return data.issueUpdate as IssueResult;
+    });
   });
 }
 
 export async function assignIssue(env: Env, workspaceId: string, input: AssignIssueInput) {
   return withWorkspaceAccessToken<IssueResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ issueUpdate: IssueResult }>(
-      'mutation($id:String!,$input:IssueUpdateInput!){ issueUpdate(id:$id,input:$input){ success issue{ id identifier title url } } }',
-      { id: input.issueId, input: { assigneeId: input.assigneeId } },
-      accessToken
-    );
-    return data.issueUpdate;
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<any>(
+        client,
+        `mutation($id: String!, $input: IssueUpdateInput!) {
+          issueUpdate(id: $id, input: $input) {
+            success
+            issue { id identifier title url }
+          }
+        }`,
+        { id: input.issueId, input: { assigneeId: input.assigneeId } },
+      );
+
+      return data.issueUpdate as IssueResult;
+    });
   });
 }
 
 export async function transitionIssueState(env: Env, workspaceId: string, input: TransitionIssueInput) {
   return withWorkspaceAccessToken<IssueResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ issueUpdate: IssueResult }>(
-      'mutation($id:String!,$input:IssueUpdateInput!){ issueUpdate(id:$id,input:$input){ success issue{ id identifier title url } } }',
-      { id: input.issueId, input: { stateId: input.stateId } },
-      accessToken
-    );
-    return data.issueUpdate;
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<any>(
+        client,
+        `mutation($id: String!, $input: IssueUpdateInput!) {
+          issueUpdate(id: $id, input: $input) {
+            success
+            issue { id identifier title url }
+          }
+        }`,
+        { id: input.issueId, input: { stateId: input.stateId } },
+      );
+
+      return data.issueUpdate as IssueResult;
+    });
   });
 }
 
@@ -165,12 +219,21 @@ export interface AddToProjectInput {
 
 export async function addIssueToProject(env: Env, workspaceId: string, input: AddToProjectInput) {
   return withWorkspaceAccessToken<IssueResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ issueUpdate: IssueResult }>(
-      'mutation($id:String!,$input:IssueUpdateInput!){ issueUpdate(id:$id,input:$input){ success issue{ id identifier title url } } }',
-      { id: input.issueId, input: { projectId: input.projectId } },
-      accessToken
-    );
-    return data.issueUpdate;
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<any>(
+        client,
+        `mutation($id: String!, $input: IssueUpdateInput!) {
+          issueUpdate(id: $id, input: $input) {
+            success
+            issue { id identifier title url }
+          }
+        }`,
+        { id: input.issueId, input: { projectId: input.projectId } },
+      );
+
+      return data.issueUpdate as IssueResult;
+    });
   });
 }
 
@@ -185,34 +248,35 @@ function parseIssueIdentifier(identifier: string): { teamKey: string; number: nu
 
 export async function getIssueByIdentifier(env: Env, workspaceId: string, identifier: string) {
   return withWorkspaceAccessToken<IssueByIdentifierResult>(env, workspaceId, async (accessToken) => {
-    const { teamKey, number } = parseIssueIdentifier(identifier);
+    return withSdkClient(accessToken, async (client) => {
+      const { teamKey, number } = parseIssueIdentifier(identifier);
+      const { sdkRequest } = await import("./sdk");
 
-    // 先把 team key 转成 team ID
-    const teamsData = await linearGraphql<{ teams: { nodes: Array<{ id: string; key: string }> } }>(
-      `query($teamKey: String!) {
-        teams(filter: { key: { eq: $teamKey } }) { nodes { id key } }
-      }`,
-      { teamKey },
-      accessToken,
-    );
+      const teamsData = await sdkRequest<any>(
+        client,
+        `query($teamKey: String!) {
+          teams(filter: { key: { eq: $teamKey } }) { nodes { id key } }
+        }`,
+        { teamKey },
+      );
 
-    const teamId = teamsData.teams.nodes[0]?.id;
-    if (!teamId) {
-      return { success: true, issue: null };
-    }
+      const teamId = teamsData.teams?.nodes?.[0]?.id;
+      if (!teamId) {
+        return { success: true, issue: null };
+      }
 
-    // 再用 team ID + number 查 issue
-    const data = await linearGraphql<{ issues: { nodes: IssueByIdentifierResult['issue'][] } }>(
-      `query($teamId: ID!, $numbers: [Float!]!) {
-        issues(filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }) {
-          nodes { id identifier title state { id name } project { id name } }
-        }
-      }`,
-      { teamId, numbers: [number] },
-      accessToken,
-    );
+      const issuesData = await sdkRequest<any>(
+        client,
+        `query($teamId: ID!, $numbers: [Float!]!) {
+          issues(filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }) {
+            nodes { id identifier title state { id name } project { id name } }
+          }
+        }`,
+        { teamId, numbers: [number] },
+      );
 
-    return { success: true, issue: data.issues.nodes[0] ?? null };
+      return { success: true, issue: issuesData.issues?.nodes?.[0] ?? null };
+    });
   });
 }
 
@@ -228,17 +292,20 @@ export interface TeamStatesResult {
 
 export async function listTeamStates(env: Env, workspaceId: string, teamId: string) {
   return withWorkspaceAccessToken<TeamStatesResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ team: { states: { nodes: IssueStateResult[] } } | null }>(
-      `query($teamId: String!) {
-        team(id: $teamId) {
-          states { nodes { id name } }
-        }
-      }`,
-      { teamId },
-      accessToken
-    );
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<any>(
+        client,
+        `query($teamId: String!) {
+          team(id: $teamId) {
+            states { nodes { id name } }
+          }
+        }`,
+        { teamId },
+      );
 
-    return { success: true, states: data.team?.states.nodes ?? [] };
+      return { success: true, states: data.team?.states?.nodes ?? [] };
+    });
   });
 }
 
@@ -257,23 +324,26 @@ export interface IssuesByNumberResult {
 
 export async function listIssuesByNumbers(env: Env, workspaceId: string, teamId: string, numbers: number[]) {
   return withWorkspaceAccessToken<IssuesByNumberResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ issues: { nodes: IssueListItem[] } }>(
-      `query($teamId: ID!, $numbers: [Float!]!) {
-        issues(filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }) {
-          nodes {
-            id
-            identifier
-            title
-            url
-            state { id name }
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<any>(
+        client,
+        `query($teamId: ID!, $numbers: [Float!]!) {
+          issues(filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }) {
+            nodes {
+              id
+              identifier
+              title
+              url
+              state { id name }
+            }
           }
-        }
-      }`,
-      { teamId, numbers },
-      accessToken
-    );
+        }`,
+        { teamId, numbers },
+      );
 
-    return { success: true, issues: data.issues.nodes };
+      return { success: true, issues: data.issues?.nodes ?? [] };
+    });
   });
 }
 
@@ -290,17 +360,20 @@ export interface AttachmentResult {
 
 export async function addAttachment(env: Env, workspaceId: string, input: AddAttachmentInput) {
   return withWorkspaceAccessToken<AttachmentResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ attachmentCreate: AttachmentResult }>(
-      `mutation($issueId: String!, $input: AttachmentCreateInput!) {
-        attachmentCreate(issueId: $issueId, input: $input) {
-          success
-          attachment { id title url }
-        }
-      }`,
-      { issueId: input.issueId, input: { title: input.title, url: input.url } },
-      accessToken
-    );
-    return data.attachmentCreate;
+    const payload = await withSdkClient(accessToken, (client) => (client as any).createAttachment({
+      issueId: input.issueId,
+      title: input.title,
+      url: input.url,
+    })) as any;
+
+    return {
+      success: Boolean((payload as any)?.success),
+      attachment: {
+        id: (payload as any)?.attachment?.id ?? '',
+        title: (payload as any)?.attachment?.title ?? input.title,
+        url: (payload as any)?.attachment?.url ?? input.url,
+      },
+    };
   });
 }
 
@@ -316,16 +389,18 @@ export interface IssueRelationResult {
 
 export async function createIssueRelation(env: Env, workspaceId: string, input: IssueRelationInput & { relationType: "blocks" | "duplicates" | "relates_to" }) {
   return withWorkspaceAccessToken<IssueRelationResult>(env, workspaceId, async (accessToken) => {
-    const data = await linearGraphql<{ issueRelationCreate: IssueRelationResult }>(
-      `mutation($issueId: String!, $relatedIssueId: String!, $type: IssueRelationType!) {
-        issueRelationCreate(issueId: $issueId, relatedIssueId: $relatedIssueId, type: $type) {
-          success
-          relation { id type }
-        }
-      }`,
-      { issueId: input.issueId, relatedIssueId: input.relatedIssueId, type: input.relationType },
-      accessToken
-    );
-    return data.issueRelationCreate;
+    const payload = await withSdkClient(accessToken, (client) => (client as any).createIssueRelation({
+      issueId: input.issueId,
+      relatedIssueId: input.relatedIssueId,
+      type: input.relationType as any,
+    })) as any;
+
+    return {
+      success: Boolean((payload as any)?.success),
+      relation: {
+        id: (payload as any)?.relation?.id ?? '',
+        type: (payload as any)?.relation?.type ?? input.relationType,
+      },
+    };
   });
 }

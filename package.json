@@ -15,5 +15,8 @@
     "typescript": "^5.8.2",
     "wrangler": "^4.5.0",
     "zod": "^3.24.2"
+  },
+  "dependencies": {
+    "@linear/sdk": "^77.0.0"
   }
 }
