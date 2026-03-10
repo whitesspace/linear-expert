@@ -29,8 +29,11 @@ Expected: HTTP 200 with JSON containing `traceId` and `reserved.firstThoughtProm
 
 ## TraceId lookup
 - Copy the `traceId` from the response.
-- Lookup: for now, the trace is returned inline in the response only (no persistent storage yet).
-  - If you need durable trace lookup, implement it as a separate WS-37 increment (storage-backed trace log), **not** by embedding invocation logic into the execution layer.
+- Durable correlation: the invocation handler writes a trace mapping via `storage.trace.set(traceId, ...)`:
+  - `traceId -> { agentSessionId, workspaceId, eventType, createdAt }`
+- Local dev:
+  - Check worker logs around the request timestamp.
+  - Persistence depends on the configured StorageAdapter (e.g. D1-backed trace store).
 
 ## Notes
 - This endpoint is **secret-protected**:
