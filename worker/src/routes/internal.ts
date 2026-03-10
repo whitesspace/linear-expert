@@ -17,6 +17,7 @@ import {
   assignIssue,
   createIssue,
   createIssueRelation,
+  getInstallationIdentity,
   getIssueByIdentifier,
   listIssuesByNumbers,
   listTeamStates,
@@ -47,6 +48,11 @@ const AddToProjectInputSchema = z.object({
   projectId: z.string().min(1),
 });
 const AddToProjectRequestSchema = WorkspaceScopedSchema.merge(AddToProjectInputSchema);
+
+const ResolveRequestSchema = z.object({
+  teamKey: z.string().min(1),
+  workspaceId: z.string().min(1).optional(),
+});
 
 export const TaskResultSchema = z.discriminatedUnion("action", [
   z.object({
@@ -160,6 +166,54 @@ async function handleAddToProject(request: Request, env: Env): Promise<Response>
   }
   const result = await addIssueToProject(env, payload.data.workspaceId, payload.data);
   return json({ ok: true, action: "add_to_project", result });
+}
+
+async function handleResolve(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = ResolveRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+
+    const { getStorage } = await import("../storage");
+    const storage = getStorage(env);
+
+    // Default workspaceId fallback must match oauth callback fallback.
+    const workspaceId = payload.data.workspaceId ?? "default-workspace";
+    const token = await storage.oauth.get(workspaceId);
+    if (!token?.accessToken) {
+      return json(
+        {
+          ok: false,
+          error: "no_oauth_token",
+          message: `No OAuth token stored for workspace ${workspaceId}. Visit /oauth/start to authorize.`,
+        },
+        { status: 401 },
+      );
+    }
+
+    // identity is useful for debugging; resolves org id.
+    const identity = await getInstallationIdentity(token.accessToken);
+
+    // Resolve teamId by teamKey.
+    const { createLinearSdkClient, sdkRequest } = await import("../linear/sdk");
+    const client = createLinearSdkClient(token.accessToken);
+    const teamsData: any = await sdkRequest<any>(
+      client,
+      `query($teamKey: String!) { teams(filter: { key: { eq: $teamKey } }) { nodes { id key } } }`,
+      { teamKey: payload.data.teamKey },
+    );
+
+    const teamId = teamsData?.teams?.nodes?.[0]?.id;
+    if (!teamId) {
+      return json({ ok: false, error: "team_not_found", teamKey: payload.data.teamKey }, { status: 404 });
+    }
+
+    return json({ ok: true, workspaceId, teamId, identity });
+  } catch (err) {
+    console.error("handleResolve error:", err);
+    return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+  }
 }
 
 const GetIssueRequestSchema = z.object({
@@ -313,6 +367,10 @@ export async function handleInternalRequest(
 
   if (url.pathname === "/internal/linear/issues/get" && request.method === "POST") {
     return handleGetIssue(request, env);
+  }
+
+  if (url.pathname === "/internal/linear/resolve" && request.method === "POST") {
+    return handleResolve(request, env);
   }
 
   if (url.pathname === "/internal/linear/issues/attachment" && request.method === "POST") {
