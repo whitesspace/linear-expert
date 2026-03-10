@@ -367,6 +367,42 @@ npm test
 #### Smoke
 - `./scripts/lec-initiatives-smoke.sh`（create -> update -> archive）
 
+### Cycles（已接入）
+
+#### Worker routes（internal）
+- `POST /internal/linear/cycles/list`
+- `POST /internal/linear/cycles/get`
+- `POST /internal/linear/cycles/create`
+- `POST /internal/linear/cycles/update`
+- `POST /internal/linear/cycles/archive`
+
+#### lec（thin wrapper）
+- `./scripts/lec cycles list [--team WS] [--limit 25] [--json]`
+
+#### Smoke
+- `./scripts/lec-cycles-smoke.sh`
+
+### Labels（已接入）
+
+#### Worker routes（internal）
+- `POST /internal/linear/labels/list`
+- `POST /internal/linear/labels/get`
+- `POST /internal/linear/labels/create`
+- `POST /internal/linear/labels/update`
+- `POST /internal/linear/labels/retire`
+- `POST /internal/linear/labels/restore`
+
+#### lec（thin wrapper）
+- `./scripts/lec labels list [--team WS] [--limit 25] [--json]`
+- `./scripts/lec labels get --id <labelId> [--team WS] [--json]`
+- `./scripts/lec labels create --title "<name>" [--description "..."] [--color "..."] [--team WS] [--json]`
+- `./scripts/lec labels update --id <labelId> [--title "..."] [--description "..."] [--color "..."] [--team WS] [--json]`
+- `./scripts/lec labels retire --id <labelId> [--team WS] [--json]`
+- `./scripts/lec labels restore --id <labelId> [--team WS] [--json]`
+
+#### Smoke
+- `./scripts/lec-labels-smoke.sh`（create -> update -> retire -> restore）
+
 
 ### 已完成
 - OAuth app 授权 + D1 存储骨架

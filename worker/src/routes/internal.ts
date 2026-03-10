@@ -28,7 +28,8 @@ import {
 import { archiveProject, createProject, getProject, listProjects, updateProject } from "../linear/projects";
 import { triageList } from "../linear/triage";
 import { archiveInitiative, createInitiative, getInitiative, listInitiatives, updateInitiative } from "../linear/initiatives";
-import { listCycles } from "../linear/cycles";
+import { archiveCycle, createCycle, getCycle, listCycles, updateCycle } from "../linear/cycles";
+import { createIssueLabel, getIssueLabel, listIssueLabels, restoreIssueLabel, retireIssueLabel, updateIssueLabel } from "../linear/labels";
 import type { StorageAdapter } from "../storage/types";
 
 const CommentRequestSchema = z.object({
@@ -101,6 +102,67 @@ const CyclesListRequestSchema = z.object({
   workspaceId: z.string().min(1),
   teamId: z.string().min(1),
   limit: z.number().int().min(1).max(100).optional(),
+});
+
+const CyclesGetRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
+});
+
+const CyclesCreateRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  teamId: z.string().min(1),
+  startsAt: z.string().min(1),
+  endsAt: z.string().min(1),
+  name: z.string().optional().nullable(),
+});
+
+const CyclesUpdateRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
+  startsAt: z.string().optional(),
+  endsAt: z.string().optional(),
+  name: z.string().optional().nullable(),
+});
+
+const CyclesArchiveRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
+});
+
+const LabelsListRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  limit: z.number().int().min(1).max(100).optional(),
+});
+
+const LabelsGetRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
+});
+
+const LabelsCreateRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  name: z.string().min(1),
+  color: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+});
+
+const LabelsUpdateRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
+  name: z.string().optional(),
+  color: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+});
+
+const LabelsRetireRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
+});
+
+const LabelsRestoreRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
 });
 
 export const TaskResultSchema = z.discriminatedUnion("action", [
@@ -653,6 +715,163 @@ export async function handleInternalRequest(
       return json({ ok: true, action: "cycles_list", result });
     } catch (err) {
       console.error("cycles_list error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/cycles/get" && request.method === "POST") {
+    try {
+      const payload = CyclesGetRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await getCycle(env, payload.data.workspaceId, payload.data.id);
+      return json({ ok: true, action: "cycles_get", result });
+    } catch (err) {
+      console.error("cycles_get error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/cycles/create" && request.method === "POST") {
+    try {
+      const payload = CyclesCreateRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await createCycle(env, payload.data.workspaceId, {
+        teamId: payload.data.teamId,
+        startsAt: payload.data.startsAt,
+        endsAt: payload.data.endsAt,
+        name: payload.data.name ?? null,
+      });
+      return json({ ok: true, action: "cycles_create", result });
+    } catch (err) {
+      console.error("cycles_create error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/cycles/update" && request.method === "POST") {
+    try {
+      const payload = CyclesUpdateRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await updateCycle(env, payload.data.workspaceId, payload.data.id, {
+        startsAt: payload.data.startsAt,
+        endsAt: payload.data.endsAt,
+        name: payload.data.name,
+      });
+      return json({ ok: true, action: "cycles_update", result });
+    } catch (err) {
+      console.error("cycles_update error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/cycles/archive" && request.method === "POST") {
+    try {
+      const payload = CyclesArchiveRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await archiveCycle(env, payload.data.workspaceId, payload.data.id);
+      return json({ ok: true, action: "cycles_archive", result });
+    } catch (err) {
+      console.error("cycles_archive error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/labels/list" && request.method === "POST") {
+    try {
+      const payload = LabelsListRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await listIssueLabels(env, payload.data.workspaceId, payload.data.limit ?? 25);
+      return json({ ok: true, action: "labels_list", result });
+    } catch (err) {
+      console.error("labels_list error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/labels/get" && request.method === "POST") {
+    try {
+      const payload = LabelsGetRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await getIssueLabel(env, payload.data.workspaceId, payload.data.id);
+      return json({ ok: true, action: "labels_get", result });
+    } catch (err) {
+      console.error("labels_get error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/labels/create" && request.method === "POST") {
+    try {
+      const payload = LabelsCreateRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await createIssueLabel(env, payload.data.workspaceId, {
+        name: payload.data.name,
+        color: payload.data.color ?? null,
+        description: payload.data.description ?? null,
+      });
+      return json({ ok: true, action: "labels_create", result });
+    } catch (err) {
+      console.error("labels_create error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/labels/update" && request.method === "POST") {
+    try {
+      const payload = LabelsUpdateRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await updateIssueLabel(env, payload.data.workspaceId, payload.data.id, {
+        name: payload.data.name,
+        color: payload.data.color ?? null,
+        description: payload.data.description,
+      });
+      return json({ ok: true, action: "labels_update", result });
+    } catch (err) {
+      console.error("labels_update error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/labels/retire" && request.method === "POST") {
+    try {
+      const payload = LabelsRetireRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await retireIssueLabel(env, payload.data.workspaceId, payload.data.id);
+      return json({ ok: true, action: "labels_retire", result });
+    } catch (err) {
+      console.error("labels_retire error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/labels/restore" && request.method === "POST") {
+    try {
+      const payload = LabelsRestoreRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await restoreIssueLabel(env, payload.data.workspaceId, payload.data.id);
+      return json({ ok: true, action: "labels_restore", result });
+    } catch (err) {
+      console.error("labels_restore error:", err);
       return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
     }
   }
