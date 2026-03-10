@@ -272,9 +272,19 @@ test/
 - `signature.test.ts`
   - 测 webhook HMAC signature verify
 
-### 执行
+### CI 等价验证（本地跑一遍就知道会不会炸）
+```bash
+npm run ci
+```
+
+> 说明：
+> - `npm test` 默认会跳过需要 `LINEAR_EXPERT_INTERNAL_SECRET` 的 contracts/smoke（缺 secret 时不会 fail）。
+> - `npm run typecheck` 会跑 `tsc --noEmit`。
+
+### 单独执行
 ```bash
 npm test
+npm run typecheck
 ```
 
 ---
