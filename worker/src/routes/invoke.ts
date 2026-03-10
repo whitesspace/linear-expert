@@ -36,10 +36,13 @@ type FirstThoughtInput = {
 };
 
 function pickString(obj: unknown, path: string[]): string | undefined {
-  let cur: any = obj;
+  let cur: unknown = obj;
   for (const key of path) {
-    if (cur && typeof cur === "object" && key in cur) cur = (cur as any)[key];
-    else return undefined;
+    if (cur && typeof cur === "object" && key in cur) {
+      cur = (cur as Record<string, unknown>)[key];
+    } else {
+      return undefined;
+    }
   }
   if (typeof cur === "string") return cur.trim() || undefined;
   return undefined;
