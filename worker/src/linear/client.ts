@@ -68,7 +68,7 @@ async function getValidAccessToken(env: Env, workspaceId: string): Promise<strin
     throw new Error(`OAuth token for workspace ${workspaceId} cannot be refreshed`);
   }
 
-  const refreshed = await refreshAccessToken(token.refreshToken, env) as any;
+  const refreshed = await refreshAccessToken(token.refreshToken, env);
   const next = {
     workspaceId,
     accessToken: refreshed.access_token,
