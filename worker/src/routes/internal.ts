@@ -29,6 +29,7 @@ import { archiveProject, createProject, getProject, listProjects, updateProject 
 import { triageList } from "../linear/triage";
 import { archiveInitiative, createInitiative, getInitiative, listInitiatives, updateInitiative } from "../linear/initiatives";
 import { archiveCycle, createCycle, getCycle, listCycles, updateCycle } from "../linear/cycles";
+import { listIssueLabels } from "../linear/labels";
 import type { StorageAdapter } from "../storage/types";
 
 const CommentRequestSchema = z.object({
@@ -127,6 +128,11 @@ const CyclesUpdateRequestSchema = z.object({
 const CyclesArchiveRequestSchema = z.object({
   workspaceId: z.string().min(1),
   id: z.string().min(1),
+});
+
+const LabelsListRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  limit: z.number().int().min(1).max(100).optional(),
 });
 
 export const TaskResultSchema = z.discriminatedUnion("action", [
@@ -744,6 +750,20 @@ export async function handleInternalRequest(
       return json({ ok: true, action: "cycles_archive", result });
     } catch (err) {
       console.error("cycles_archive error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/labels/list" && request.method === "POST") {
+    try {
+      const payload = LabelsListRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await listIssueLabels(env, payload.data.workspaceId, payload.data.limit ?? 25);
+      return json({ ok: true, action: "labels_list", result });
+    } catch (err) {
+      console.error("labels_list error:", err);
       return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
     }
   }
