@@ -67,8 +67,13 @@ async function run() {
 
     const traceStore = (reserved.traceStore ?? {}) as {
       wrote?: unknown;
+      agentSessionId?: unknown;
+      workspaceId?: unknown;
     };
     assert.equal(traceStore.wrote, true);
+    // Ensure key identifiers are echoed for later persistence/replay wiring.
+    assert.ok(typeof traceStore.agentSessionId === "string" && traceStore.agentSessionId.length > 0);
+    assert.ok(typeof traceStore.workspaceId === "string" && traceStore.workspaceId.length > 0);
   }
 
   // Dev replay endpoint: secret-protected and runs through same pipeline shape
