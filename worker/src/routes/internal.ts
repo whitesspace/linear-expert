@@ -254,12 +254,17 @@ const IssueRelationRequestSchema = z.object({
 });
 
 async function handleCreateIssueRelation(request: Request, env: Env): Promise<Response> {
-  const payload = IssueRelationRequestSchema.safeParse(await parseJson(request));
-  if (!payload.success) {
-    return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+  try {
+    const payload = IssueRelationRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await createIssueRelation(env, payload.data.workspaceId, payload.data);
+    return json({ ok: true, action: "create_relation", result });
+  } catch (err) {
+    console.error("handleCreateIssueRelation error:", err);
+    return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
   }
-  const result = await createIssueRelation(env, payload.data.workspaceId, payload.data);
-  return json({ ok: true, action: "create_relation", result });
 }
 
 const ListIssuesByNumbersRequestSchema = z.object({
