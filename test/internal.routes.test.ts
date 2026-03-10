@@ -28,11 +28,18 @@ async function run() {
   const originalFetch = globalThis.fetch;
   const calls: Array<{ query: string; variables: Record<string, unknown> }> = [];
 
-  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body ?? "{}")) as {
-      query?: string;
-      variables?: Record<string, unknown>;
+  type GraphQLRequest = {
+    query?: string;
+    variables?: {
+      input?: {
+        parentId?: string;
+      };
+      [k: string]: unknown;
     };
+  };
+
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as GraphQLRequest;
     calls.push({
       query: body.query ?? "",
       variables: body.variables ?? {},
@@ -76,8 +83,8 @@ async function run() {
     assert.equal(createJson.ok, true);
     assert.ok(calls.length >= 1);
     // ensure parentId is preserved in outbound call (look for a variables.input payload)
-    const lastInput = [...calls].reverse().find((call) => (call.variables as any)?.input)?.variables?.input as any;
-    assert.equal(lastInput.parentId, "parent_1");
+    const lastInput = [...calls].reverse().find((call) => call.variables.input)?.variables.input;
+    assert.equal(lastInput?.parentId, "parent_1");
 
     const storage = getStorage(env);
     const createdTask = await storage.tasks.create({
@@ -115,8 +122,8 @@ async function run() {
     const taskResultJson = await taskResultResponse.json() as { task: { resultAction: string } };
     assert.equal(taskResultJson.task.resultAction, "create_issue");
     assert.ok(calls.length >= 2);
-    const lastInput2 = [...calls].reverse().find((call) => (call.variables as any)?.input)?.variables?.input as any;
-    assert.equal(lastInput2.parentId, "parent_2");
+    const lastInput2 = [...calls].reverse().find((call) => call.variables.input)?.variables.input;
+    assert.equal(lastInput2?.parentId, "parent_2");
   } finally {
     globalThis.fetch = originalFetch;
   }

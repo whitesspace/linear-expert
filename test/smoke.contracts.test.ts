@@ -11,10 +11,16 @@ function requireEnv(value: string | undefined, name: string) {
   return value;
 }
 
-async function postJson(path: string, body: unknown) {
+type PostJsonResult = {
+  res: Response;
+  text: string;
+  json: unknown;
+};
+
+async function postJson(path: string, body: unknown): Promise<PostJsonResult> {
   const secret = requireEnv(INTERNAL_SECRET, "LINEAR_EXPERT_INTERNAL_SECRET");
   if (!secret) {
-    return { res: new Response(null, { status: 204 }), text: "", json: null } as any;
+    return { res: new Response(null, { status: 204 }), text: "", json: null as unknown };
   }
 
   const res = await fetch(`${WORKER_URL}${path}`, {
