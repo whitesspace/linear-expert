@@ -33,9 +33,9 @@ async function postJson(path: string, body: unknown): Promise<PostJsonResult> {
   });
 
   const text = await res.text();
-  let json: any = null;
+  let json: unknown = null;
   try {
-    json = JSON.parse(text);
+    json = JSON.parse(text) as unknown;
   } catch {
     // ignore
   }
