@@ -72,8 +72,8 @@ function buildFirstThoughtPrompt(input: FirstThoughtInput): string {
     pickString(input.promptContext, ["latestComment", "body"]);
 
   const workspaceHint = input.workspaceId ? `workspace=${input.workspaceId}` : undefined;
-  const sessionHint = input.agentSessionId ? `agentSessionId=` : undefined;
-  const traceHint = input.traceId ? `traceId=` : undefined;
+  const sessionHint = input.agentSessionId ? `agentSessionId=${input.agentSessionId}` : undefined;
+  const traceHint = input.traceId ? `traceId=${input.traceId}` : undefined;
 
   const headerParts = [
     issueIdentifier && issueTitle ? `${issueIdentifier} — ${issueTitle}` : issueTitle || issueIdentifier,
