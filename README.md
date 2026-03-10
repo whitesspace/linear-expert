@@ -123,15 +123,32 @@ linear-expert/
 - `POST /webhooks/linear`
   - 接收 Linear webhook
 
-### Internal（仅 OpenClaw 使用）
+### Internal（仅 OpenClaw / lec 使用）
+
+#### Tasks
 - `GET /internal/tasks?status=pending&limit=25`
 - `POST /internal/tasks/:id/claim`
 - `POST /internal/tasks/:id/result`
+
+#### Issues
 - `POST /internal/linear/comment`
 - `POST /internal/linear/issues/create`
+- `POST /internal/linear/issues/get`
 - `POST /internal/linear/issues/update`
 - `POST /internal/linear/issues/assign`
 - `POST /internal/linear/issues/state`
+- `POST /internal/linear/issues/project`（issue 加入 project）
+- `POST /internal/linear/issues/attachment`
+- `POST /internal/linear/issues/relation`
+
+#### Projects
+- `POST /internal/linear/resolve`（teamKey -> teamId/workspaceId）
+- `POST /internal/linear/team/projects`（列出 team 下 projects）
+- `POST /internal/linear/projects/list`
+- `POST /internal/linear/projects/get`
+- `POST /internal/linear/projects/create`
+- `POST /internal/linear/projects/update`
+- `POST /internal/linear/projects/delete`（archive 语义）
 
 这些正式 execution APIs 会逐步替代临时 debug 路径。
 
