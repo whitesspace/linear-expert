@@ -26,21 +26,14 @@ export interface IssueByIdentifierResult {
   issue: { id: string; identifier: string; title: string; state: { name: string }; project: { id: string; name: string } | null } | null;
 }
 
-export async function linearGraphql<T>(query: string, variables: Record<string, unknown>, accessToken: string): Promise<T> {
-  const res = await fetch(LINEAR_GRAPHQL_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': accessToken
-    },
-    body: JSON.stringify({ query, variables })
-  });
-
-  const json = await res.json<any>();
-  if (!res.ok || json.errors) {
-    throw new Error(`Linear GraphQL failed: ${JSON.stringify(json.errors ?? json)}`);
-  }
-  return json.data as T;
+/**
+ * Legacy: direct fetch to Linear GraphQL.
+ *
+ * Phase 3 policy (WS-52): we no longer allow calling Linear via manual fetch.
+ * All Linear calls must go through @linear/sdk client.rawRequest (sdkRequest).
+ */
+export async function linearGraphql<T>(_query: string, _variables: Record<string, unknown>, _accessToken: string): Promise<T> {
+  throw new Error('linearGraphql(fetch) is disabled. Use sdkRequest(rawRequest) via @linear/sdk.');
 }
 
 export async function getInstallationIdentity(accessToken: string) {
