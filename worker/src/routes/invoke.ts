@@ -23,6 +23,16 @@ const AgentSessionEventSchema = z.object({
   promptContext: z.unknown().optional(),
 });
 
+const InvokeSignalSchema = z.object({
+  // Reserved signal types for future orchestration.
+  // Keep strict enough to avoid accidental coupling to random payloads.
+  type: z.enum(["stop", "select", "auth"]).or(z.string().min(1)),
+  agentSessionId: z.string().min(1).optional(),
+  workspaceId: z.string().min(1).optional(),
+  // Optional opaque signal data (e.g. user selection, auth grants)
+  data: z.unknown().optional(),
+});
+
 const InvokeResponseSchema = z.object({
   ok: z.literal(true),
   traceId: z.string().min(1),
@@ -87,12 +97,20 @@ export async function handleInvokeRequest(
 
   if (url.pathname === "/internal/invoke/signal" && request.method === "POST") {
     // Reserved for stop/auth/select signals.
+    const payload = InvokeSignalSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+
     const traceId = makeTraceId();
     return json(
       {
         ok: true,
         traceId,
-        reserved: { note: "WS-37 stub: signal handling reserved" },
+        reserved: {
+          note: "WS-37 stub: signal handling reserved",
+          receivedType: payload.data.type,
+        },
       },
       { status: 200 },
     );
