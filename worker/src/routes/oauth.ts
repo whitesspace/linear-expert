@@ -28,7 +28,7 @@ export async function oauthCallback(request: Request, env: Env): Promise<Respons
     return Response.json({ ok: false, error: 'Missing code' }, { status: 400 });
   }
 
-  const tokenResponse = await exchangeCodeForToken(code, env) as any;
+  const tokenResponse = await exchangeCodeForToken(code, env);
   const storage = getStorage(env);
   const accessToken = tokenResponse.access_token as string;
   const identity = await getInstallationIdentity(accessToken);
