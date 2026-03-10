@@ -229,7 +229,7 @@ export interface TeamStatesResult {
 export async function listTeamStates(env: Env, workspaceId: string, teamId: string) {
   return withWorkspaceAccessToken<TeamStatesResult>(env, workspaceId, async (accessToken) => {
     const data = await linearGraphql<{ team: { states: { nodes: IssueStateResult[] } } | null }>(
-      `query($teamId: ID!) {
+      `query($teamId: String!) {
         team(id: $teamId) {
           states { nodes { id name } }
         }
