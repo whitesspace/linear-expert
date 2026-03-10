@@ -252,11 +252,49 @@ npx wrangler deploy
 
 ## 8. 如何使用（运行时）
 
-### 授权流程
+### 8.1 lec CLI（推荐：人/脚本调用 internal APIs）
+`lec` 是仓库自带 CLI（路径：`./scripts/lec`），用于把常见操作封装为命令行，并统一走 worker 的 internal routes。
+
+前置：
+- 本机环境需要 `OPENCLAW_INTERNAL_SECRET`
+  - 建议放到：`~/.openclaw/keys/.env`
+
+快速开始：
+```bash
+cd ~/Documents/Github/linear-expert
+set -a; source ~/.openclaw/keys/.env; set +a
+
+./scripts/lec --help
+./scripts/lec auth status --plain
+./scripts/lec-smoke.sh
+```
+
+常用示例：
+```bash
+# issue
+./scripts/lec issue create --team WS --title "hello" --description "world" --json
+./scripts/lec issue get --team WS --issue WS-123 --json
+./scripts/lec issue update --team WS --issue WS-123 --title "new" --json
+./scripts/lec comment create --team WS --issue WS-123 --body "comment" --json
+./scripts/lec attachment add --team WS --issue WS-123 --url "https://example.com" --title "link" --json
+./scripts/lec relation add --team WS --issue WS-123 --relation relates_to --target WS-456 --json
+
+# project
+./scripts/lec project list --team WS --plain
+./scripts/lec project create --team WS --title "[tmp] proj" --description "desc" --json
+./scripts/lec project get --team WS --project <projectId> --json
+./scripts/lec project update --team WS --project <projectId> --description "desc2" --json
+./scripts/lec project delete --team WS --project <projectId> --json
+```
+
+> `lec` 默认 base URL 为生产 worker：`https://linear-expert.placeapp.workers.dev`。
+> 如需切换（本地 wrangler dev），设置：`LEC_BASE_URL=http://localhost:8787`
+
+### 8.2 OAuth 授权流程（一次性）
 1. 访问：
    `GET /oauth/start`
 2. 完成 Linear OAuth app 授权
-3. callback 返回后，Worker 将保存 workspace token（目前已接主干，后续继续验证 D1 持久化）
+3. callback 返回后，Worker 将保存 workspace token（持久化到 D1）
 
 ### Webhook 流
 1. Linear 事件触发 webhook
