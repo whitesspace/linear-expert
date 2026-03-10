@@ -52,16 +52,16 @@ const PLANNED_EXECUTION_DOMAINS: LinearExecutionDomainPlan[] = [
   },
   {
     domain: "relations",
-    status: "planned",
+    status: "active",
     summary: "建立 block、duplicate、related 等 issue 关系，补齐执行闭环。",
-    actions: ["block", "duplicate", "related"],
-    routes: [],
+    actions: ["blocks", "duplicates", "relates_to"],
+    routes: [
+      { action: "create", method: "POST", path: "/internal/linear/issues/relation" },
+    ],
   },
 ];
 
-const NEXT_CONCRETE_IMPLEMENTATION_STEPS = [
-  "为 relations 建立最小 mutation 集，覆盖 block / duplicate / related。",
-];
+const NEXT_CONCRETE_IMPLEMENTATION_STEPS = [];
 
 export function getExecutionLayerPlan() {
   return {

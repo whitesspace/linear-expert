@@ -219,3 +219,29 @@ export async function addAttachment(env: Env, workspaceId: string, input: AddAtt
     return data.attachmentCreate;
   });
 }
+
+export interface IssueRelationInput {
+  issueId: string;
+  relatedIssueId: string;
+}
+
+export interface IssueRelationResult {
+  success: boolean;
+  relation: { id: string; type: string };
+}
+
+export async function createIssueRelation(env: Env, workspaceId: string, input: IssueRelationInput & { relationType: "blocks" | "duplicates" | "relates_to" }) {
+  return withWorkspaceAccessToken<IssueRelationResult>(env, workspaceId, async (accessToken) => {
+    const data = await linearGraphql<{ issueRelationCreate: IssueRelationResult }>(
+      `mutation($issueId: String!, $relatedIssueId: String!, $type: IssueRelationType!) {
+        issueRelationCreate(issueId: $issueId, relatedIssueId: $relatedIssueId, type: $type) {
+          success
+          relation { id type }
+        }
+      }`,
+      { issueId: input.issueId, relatedIssueId: input.relatedIssueId, type: input.relationType },
+      accessToken
+    );
+    return data.issueRelationCreate;
+  });
+}
