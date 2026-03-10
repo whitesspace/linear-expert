@@ -73,7 +73,7 @@ function help() {
     '  issue get --team WS --issue <WS-123>',
     '  issue update --team WS --issue <id|WS-123> [--title ...] [--description ...] [--project <projectId>]',
     '  issue assign --team WS --issue <id|WS-123> --assignee <userId>',
-    '  issue state --team WS --issue <id|WS-123> --state <stateId>',
+    '  issue state --team WS --issue <id|WS-123> --state <stateId|StateName>',
     '  issue add-to-project --team WS --issue <id|WS-123> --project <projectId>',
     '',
     '  comment create --team WS --issue <id|WS-123> --body <md>',

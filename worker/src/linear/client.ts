@@ -276,6 +276,7 @@ export async function getIssueByIdentifier(env: Env, workspaceId: string, identi
 export interface IssueStateResult {
   id: string;
   name: string;
+  type?: string | null;
 }
 
 export interface TeamStatesResult {
@@ -291,7 +292,7 @@ export async function listTeamStates(env: Env, workspaceId: string, teamId: stri
         client,
         `query($teamId: String!) {
           team(id: $teamId) {
-            states { nodes { id name } }
+            states { nodes { id name type } }
           }
         }`,
         { teamId },
