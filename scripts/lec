@@ -43,7 +43,9 @@ function parseArgs(args) {
     else if (a === '--state') out.state = args[++i];
     else if (a === '--exclude-done') out.excludeDone = true;
     else if (a === '--exclude-cancelled') out.excludeCancelled = true;
+    else if (a === '--state-name') out.stateName = args[++i];
     else {
+
       (out.unknown ??= []).push(a);
     }
   }
@@ -82,6 +84,8 @@ function help() {
     '  project create --team WS --title <name> [--description <md>]',
     '  project update --team WS --project <projectId> [--title <name>] [--description <md>]',
     '  project delete --team WS --project <projectId>',
+    '',
+    '  team states --team WS',
   ]);
 }
 
@@ -245,14 +249,43 @@ async function cmdIssueAssign(flags) {
   if (flags.json) outJson(r); else outPlain(['assigned']);
 }
 
+async function cmdTeamStates(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId, teamId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  const r = await httpJson({ baseUrl, path: '/internal/linear/team/states', secret, body: { workspaceId, teamId }, verbose: flags.verbose });
+  if (flags.json) outJson(r);
+  else {
+    const nodes = r?.result?.states || r?.states || [];
+    outPlain(nodes.map((s) => `${s.name}\t${s.id}\t${s.type ?? ''}`));
+  }
+}
+
+async function resolveStateIdByName({ baseUrl, secret, workspaceId, teamId, stateName, verbose }) {
+  const r = await httpJson({ baseUrl, path: '/internal/linear/team/states', secret, body: { workspaceId, teamId }, verbose });
+  const states = r?.result?.states || r?.states || [];
+  const hit = states.find((s) => (s.name || '').toLowerCase() === String(stateName).toLowerCase());
+  return hit?.id || null;
+}
+
 async function cmdIssueState(flags) {
   const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
   const secret = env.OPENCLAW_INTERNAL_SECRET;
   const teamKey = flags.team || 'WS';
-  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  const { workspaceId, teamId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
   if (!flags.issue || !flags.state) fail('--issue and --state required', 2);
   const issueId = await resolveIssueId({ teamKey, issue: flags.issue, workspaceId, secret, baseUrl, verbose: flags.verbose });
-  const r = await httpJson({ baseUrl, path: '/internal/linear/issues/state', secret, body: { workspaceId, issueId, stateId: flags.state }, verbose: flags.verbose });
+
+  let stateId = flags.state;
+  // If not UUID, treat as state name and resolve.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(stateId)) {
+    const resolved = await resolveStateIdByName({ baseUrl, secret, workspaceId, teamId, stateName: stateId, verbose: flags.verbose });
+    if (!resolved) fail(`Could not resolve state name: ${stateId}`, 2);
+    stateId = resolved;
+  }
+
+  const r = await httpJson({ baseUrl, path: '/internal/linear/issues/state', secret, body: { workspaceId, issueId, stateId }, verbose: flags.verbose });
   if (flags.json) outJson(r); else outPlain(['transitioned']);
 }
 
@@ -387,6 +420,10 @@ async function main() {
       if (sub === 'create') return await cmdProjectCreate(flags);
       if (sub === 'update') return await cmdProjectUpdate(flags);
       if (sub === 'delete') return await cmdProjectDelete(flags);
+    }
+
+    if (cmd === 'team') {
+      if (sub === 'states') return await cmdTeamStates(flags);
     }
 
     if (cmd === 'triage') {
