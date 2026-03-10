@@ -5,7 +5,8 @@ const tests = [
   'test/schemas.test.ts',
   'test/signature.test.ts',
   'test/internal.routes.test.ts',
-  'test/healthz.test.ts'
+  'test/healthz.test.ts',
+  'test/smoke.contracts.test.ts'
 ];
 
 for (const file of tests) {
