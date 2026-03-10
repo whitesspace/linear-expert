@@ -1,0 +1,397 @@
+#!/usr/bin/env node
+/**
+ * lec - Linear Expert CLI (thin wrapper over linear-expert worker internal routes)
+ *
+ * Requires:
+ *   - OPENCLAW_INTERNAL_SECRET in env (store in ~/.openclaw/keys/.env)
+ *
+ * Default base URL:
+ *   - https://linear-expert.placeapp.workers.dev
+ */
+
+const { argv, env, exit, stdout, stderr } = process;
+
+function outJson(obj) { stdout.write(JSON.stringify(obj, null, 2) + '\n'); }
+function outPlain(lines) { stdout.write(lines.join('\n') + '\n'); }
+function fail(msg, code = 1) { stderr.write(msg + '\n'); exit(code); }
+
+function parseArgs(args) {
+  const out = { _: [] };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (!a.startsWith('-')) { out._.push(a); continue; }
+    if (a === '--json') out.json = true;
+    else if (a === '--plain') out.plain = true;
+    else if (a === '--dry-run') out.dryRun = true;
+    else if (a === '-v' || a === '--verbose') out.verbose = true;
+    else if (a === '-q' || a === '--quiet') out.quiet = true;
+    else if (a === '-h' || a === '--help') out.help = true;
+    else if (a === '--version') out.version = true;
+    else if (a === '--team') out.team = args[++i];
+    else if (a === '--workspace') out.workspace = args[++i];
+    else if (a === '--project') out.project = args[++i];
+    else if (a === '--issue') out.issue = args[++i];
+    else if (a === '--title') out.title = args[++i];
+    else if (a === '--description') out.description = args[++i];
+    else if (a === '--body') out.body = args[++i];
+    else if (a === '--assignee') out.assignee = args[++i];
+    else if (a === '--state') out.state = args[++i];
+    else if (a === '--url') out.url = args[++i];
+    else if (a === '--label') { (out.labels ??= []).push(args[++i]); }
+    else if (a === '--relation') out.relation = args[++i];
+    else if (a === '--target') out.target = args[++i];
+    else {
+      (out.unknown ??= []).push(a);
+    }
+  }
+  return out;
+}
+
+function help() {
+  outPlain([
+    'lec - Linear Expert CLI',
+    '',
+    'USAGE:',
+    '  lec [global flags] <command> <subcommand> [flags]',
+    '',
+    'GLOBAL FLAGS:',
+    '  --json | --plain | --dry-run | -v/--verbose | -h/--help | --version',
+    '  --team <KEY> (default WS)',
+    '  --workspace <ID> (optional override)',
+    '',
+    'COMMANDS:',
+    '  auth status',
+    '  bootstrap project-crud-issues --team WS --project <linear project url>',
+    '',
+    '  issue create --team WS --title <t> [--description <md>] [--project <projectId>]',
+    '  issue get --team WS --issue <WS-123>',
+    '  issue update --team WS --issue <id|WS-123> [--title ...] [--description ...] [--project <projectId>]',
+    '  issue assign --team WS --issue <id|WS-123> --assignee <userId>',
+    '  issue state --team WS --issue <id|WS-123> --state <stateId>',
+    '  issue add-to-project --team WS --issue <id|WS-123> --project <projectId>',
+    '',
+    '  comment create --team WS --issue <id|WS-123> --body <md>',
+    '  attachment add --team WS --issue <id|WS-123> --url <http...> [--title <t>]',
+    '  relation add --team WS --issue <id|WS-123> --relation blocks|duplicates|relates_to --target <id|WS-456>',
+    '',
+    '  project list --team WS',
+    '  project get --team WS --project <projectId>',
+    '  project create --team WS --title <name> [--description <md>]',
+    '  project update --team WS --project <projectId> [--title <name>] [--description <md>]',
+    '  project delete --team WS --project <projectId>',
+  ]);
+}
+
+async function httpJson({ baseUrl, path, method = 'POST', body, secret, verbose }) {
+  const url = new URL(path, baseUrl).toString();
+  if (verbose) stderr.write(`[lec] ${method} ${url}\n`);
+  const res = await fetch(url, {
+    method,
+    headers: {
+      'content-type': 'application/json',
+      'authorization': `Bearer ${secret}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let json;
+  try { json = text ? JSON.parse(text) : null; } catch { json = { raw: text }; }
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status} ${res.statusText}`);
+    err.status = res.status;
+    err.body = json;
+    throw err;
+  }
+  return json;
+}
+
+async function resolveTeam(teamKey, workspaceOverride, verbose) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const workspaceIds = workspaceOverride ? [workspaceOverride] : ['43f90090-729f-4d7f-98d9-6693104cb211', 'default-workspace'];
+  let lastErr = null;
+  for (const wid of workspaceIds) {
+    try {
+      const res = await httpJson({ baseUrl, path: '/internal/linear/resolve', secret, body: { teamKey, workspaceId: wid }, verbose });
+      if (res?.ok) return { workspaceId: res.workspaceId, teamId: res.teamId };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error(`Failed to resolve team ${teamKey}`);
+}
+
+async function resolveIssueId({ teamKey, issue, workspaceId, secret, baseUrl, verbose }) {
+  // If it looks like a UUID, use directly.
+  if (issue && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(issue)) return issue;
+  // Otherwise treat as identifier (e.g., WS-55) and resolve via /issues/get.
+  const r = await httpJson({ baseUrl, path: '/internal/linear/issues/get', secret, body: { workspaceId, identifier: issue }, verbose });
+  const id = r?.result?.issue?.id;
+  if (!id) throw new Error(`Issue not found for identifier ${issue}`);
+  return id;
+}
+
+async function cmdAuthStatus(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const ok = !!env.OPENCLAW_INTERNAL_SECRET;
+  const info = { ok, baseUrl, secret: ok ? 'present' : 'missing' };
+  if (flags.json) outJson(info); else outPlain([`secret=${info.secret}`, `baseUrl=${info.baseUrl}`]);
+  exit(ok ? 0 : 3);
+}
+
+async function cmdBootstrapProjectCrud(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  if (!secret) fail('OPENCLAW_INTERNAL_SECRET missing', 3);
+  if (!flags.project) fail('--project required', 2);
+
+  const teamKey = flags.team || 'WS';
+  const plan = {
+    parent: { title: '[P2] Projects: CRUD', description: 'Parent issue for Projects CRUD execution API expansion. Details in sub-issues.' },
+    children: [
+      { title: 'projects.list' },
+      { title: 'projects.get' },
+      { title: 'projects.create' },
+      { title: 'projects.update' },
+      { title: 'projects.delete' },
+      { title: 'projects.contracts-tests-docs' },
+    ],
+  };
+
+  if (flags.dryRun) {
+    const lines = ['[dry-run] would create:', `- ${plan.parent.title}`, ...plan.children.map(c => `  - ${c.title}`)];
+    if (flags.json) outJson({ dryRun: true, plan }); else outPlain(lines);
+    return;
+  }
+
+  const { workspaceId, teamId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+
+  // Create parent
+  const parentRes = await httpJson({
+    baseUrl,
+    path: '/internal/linear/issues/create',
+    secret,
+    body: { workspaceId, teamId, title: plan.parent.title, description: plan.parent.description },
+    verbose: flags.verbose,
+  });
+  const parentId = parentRes?.result?.issue?.id;
+  if (!parentId) throw new Error('Failed to extract parent issue id');
+
+  // Create children
+  const children = [];
+  for (const c of plan.children) {
+    const r = await httpJson({
+      baseUrl,
+      path: '/internal/linear/issues/create',
+      secret,
+      body: { workspaceId, teamId, parentId, title: c.title, description: `Implement ${c.title} in execution layer.` },
+      verbose: flags.verbose,
+    });
+    children.push({ title: c.title, result: r?.result?.issue ?? null });
+  }
+
+  const result = { ok: true, parent: parentRes?.result?.issue ?? null, children };
+  if (flags.json) outJson(result); else outPlain(['created parent + sub-issues']);
+}
+
+async function cmdIssueCreate(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  if (!flags.title) fail('--title required', 2);
+  const teamKey = flags.team || 'WS';
+  const { workspaceId, teamId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  const body = { workspaceId, teamId, title: flags.title, description: flags.description };
+  if (flags.project) body.projectId = flags.project;
+  const r = await httpJson({ baseUrl, path: '/internal/linear/issues/create', secret, body, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain([r?.result?.issue?.identifier || 'created']);
+}
+
+async function cmdIssueGet(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.issue) fail('--issue required', 2);
+  const r = await httpJson({ baseUrl, path: '/internal/linear/issues/get', secret, body: { workspaceId, identifier: flags.issue }, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain([JSON.stringify(r?.result?.issue ?? null)]);
+}
+
+async function cmdIssueUpdate(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.issue) fail('--issue required', 2);
+  const issueId = await resolveIssueId({ teamKey, issue: flags.issue, workspaceId, secret, baseUrl, verbose: flags.verbose });
+  const body = { workspaceId, issueId };
+  if (flags.title !== undefined) body.title = flags.title;
+  if (flags.description !== undefined) body.description = flags.description;
+  if (flags.project !== undefined) body.projectId = flags.project;
+  const r = await httpJson({ baseUrl, path: '/internal/linear/issues/update', secret, body, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain(['updated']);
+}
+
+async function cmdIssueAssign(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.issue || !flags.assignee) fail('--issue and --assignee required', 2);
+  const issueId = await resolveIssueId({ teamKey, issue: flags.issue, workspaceId, secret, baseUrl, verbose: flags.verbose });
+  const r = await httpJson({ baseUrl, path: '/internal/linear/issues/assign', secret, body: { workspaceId, issueId, assigneeId: flags.assignee }, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain(['assigned']);
+}
+
+async function cmdIssueState(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.issue || !flags.state) fail('--issue and --state required', 2);
+  const issueId = await resolveIssueId({ teamKey, issue: flags.issue, workspaceId, secret, baseUrl, verbose: flags.verbose });
+  const r = await httpJson({ baseUrl, path: '/internal/linear/issues/state', secret, body: { workspaceId, issueId, stateId: flags.state }, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain(['transitioned']);
+}
+
+async function cmdIssueAddToProject(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.issue || !flags.project) fail('--issue and --project required', 2);
+  const issueId = await resolveIssueId({ teamKey, issue: flags.issue, workspaceId, secret, baseUrl, verbose: flags.verbose });
+  const r = await httpJson({ baseUrl, path: '/internal/linear/issues/project', secret, body: { workspaceId, issueId, projectId: flags.project }, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain(['added-to-project']);
+}
+
+async function cmdCommentCreate(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.issue || !flags.body) fail('--issue and --body required', 2);
+  const issueId = await resolveIssueId({ teamKey, issue: flags.issue, workspaceId, secret, baseUrl, verbose: flags.verbose });
+  const r = await httpJson({ baseUrl, path: '/internal/linear/comment', secret, body: { workspaceId, issueId, body: flags.body }, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain(['commented']);
+}
+
+async function cmdAttachmentAdd(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.issue || !flags.url) fail('--issue and --url required', 2);
+  const issueId = await resolveIssueId({ teamKey, issue: flags.issue, workspaceId, secret, baseUrl, verbose: flags.verbose });
+  const title = flags.title || 'attachment';
+  const r = await httpJson({ baseUrl, path: '/internal/linear/issues/attachment', secret, body: { workspaceId, issueId, title, url: flags.url }, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain(['attached']);
+}
+
+async function cmdRelationAdd(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.issue || !flags.relation || !flags.target) fail('--issue --relation --target required', 2);
+  const issueId = await resolveIssueId({ teamKey, issue: flags.issue, workspaceId, secret, baseUrl, verbose: flags.verbose });
+  const relatedIssueId = await resolveIssueId({ teamKey, issue: flags.target, workspaceId, secret, baseUrl, verbose: flags.verbose });
+  const r = await httpJson({ baseUrl, path: '/internal/linear/issues/relation', secret, body: { workspaceId, issueId, relatedIssueId, relationType: flags.relation }, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain(['related']);
+}
+
+async function cmdProjectList(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId, teamId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  const r = await httpJson({ baseUrl, path: '/internal/linear/team/projects', secret, body: { workspaceId, teamId }, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain((r.projects ?? []).map(p => `${p.id} ${p.name}`));
+}
+
+async function cmdProjectGet(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.project) fail('--project required', 2);
+  const r = await httpJson({ baseUrl, path: '/internal/linear/projects/get', secret, body: { workspaceId, projectId: flags.project }, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain([JSON.stringify(r)]);
+}
+
+async function cmdProjectCreate(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId, teamId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.title) fail('--title required', 2);
+  const r = await httpJson({ baseUrl, path: '/internal/linear/projects/create', secret, body: { workspaceId, name: flags.title, description: flags.description, teamId }, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain([JSON.stringify(r)]);
+}
+
+async function cmdProjectUpdate(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.project) fail('--project required', 2);
+  const body = { workspaceId, projectId: flags.project };
+  if (flags.title !== undefined) body.name = flags.title;
+  if (flags.description !== undefined) body.description = flags.description;
+  const r = await httpJson({ baseUrl, path: '/internal/linear/projects/update', secret, body, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain([JSON.stringify(r)]);
+}
+
+async function cmdProjectDelete(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.project) fail('--project required', 2);
+  const r = await httpJson({ baseUrl, path: '/internal/linear/projects/delete', secret, body: { workspaceId, projectId: flags.project }, verbose: flags.verbose });
+  if (flags.json) outJson(r); else outPlain([JSON.stringify(r)]);
+}
+
+async function main() {
+  const flags = parseArgs(argv.slice(2));
+  if (flags.help) return help();
+  if (flags.version) return outPlain(['lec 0.2.0']);
+  if (flags.unknown?.length) fail(`Unknown flags: ${flags.unknown.join(', ')}`, 2);
+
+  const cmd = flags._[0];
+  const sub = flags._[1];
+  if (!cmd) { help(); exit(2); }
+
+  try {
+    if (cmd === 'auth' && sub === 'status') return await cmdAuthStatus(flags);
+    if (cmd === 'bootstrap' && sub === 'project-crud-issues') return await cmdBootstrapProjectCrud(flags);
+
+    if (cmd === 'issue') {
+      if (sub === 'create') return await cmdIssueCreate(flags);
+      if (sub === 'get') return await cmdIssueGet(flags);
+      if (sub === 'update') return await cmdIssueUpdate(flags);
+      if (sub === 'assign') return await cmdIssueAssign(flags);
+      if (sub === 'state') return await cmdIssueState(flags);
+      if (sub === 'add-to-project') return await cmdIssueAddToProject(flags);
+    }
+
+    if (cmd === 'comment' && sub === 'create') return await cmdCommentCreate(flags);
+    if (cmd === 'attachment' && sub === 'add') return await cmdAttachmentAdd(flags);
+    if (cmd === 'relation' && sub === 'add') return await cmdRelationAdd(flags);
+
+    if (cmd === 'project') {
+      if (sub === 'list') return await cmdProjectList(flags);
+      if (sub === 'get') return await cmdProjectGet(flags);
+      if (sub === 'create') return await cmdProjectCreate(flags);
+      if (sub === 'update') return await cmdProjectUpdate(flags);
+      if (sub === 'delete') return await cmdProjectDelete(flags);
+    }
+
+    fail(`Unknown command: ${flags._.join(' ')}`, 2);
+  } catch (e) {
+    const msg = e?.body ? `${e.message}\n${JSON.stringify(e.body, null, 2)}` : (e?.stack || String(e));
+    stderr.write(msg + '\n');
+    exit(1);
+  }
+}
+
+main();

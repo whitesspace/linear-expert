@@ -83,7 +83,7 @@ async function getValidAccessToken(env: Env, workspaceId: string): Promise<strin
   return next.accessToken;
 }
 
-async function withWorkspaceAccessToken<T>(env: Env, workspaceId: string, fn: (accessToken: string) => Promise<T>): Promise<T> {
+export async function withWorkspaceAccessToken<T>(env: Env, workspaceId: string, fn: (accessToken: string) => Promise<T>): Promise<T> {
   const accessToken = await getValidAccessToken(env, workspaceId);
   return fn(accessToken);
 }
@@ -392,17 +392,38 @@ export async function createIssueRelation(env: Env, workspaceId: string, input: 
       relation?: { id: string; type: string } | null;
     };
 
-    const payload = await withSdkClient(accessToken, (client) => (client as any).createIssueRelation({
-      issueId: input.issueId,
-      relatedIssueId: input.relatedIssueId,
-      type: input.relationType as any,
-    })) as SdkCreateIssueRelationPayload;
+    const { sdkRequest } = await import("./sdk");
+    const payload = await withSdkClient(accessToken, async (client) => {
+      // Avoid relying on SDK method presence; call GraphQL directly.
+      const data = await sdkRequest<any>(
+        client,
+        `mutation($input: IssueRelationCreateInput!) {
+          issueRelationCreate(input: $input) {
+            success
+            issueRelation { id type }
+          }
+        }`,
+        {
+          input: {
+            issueId: input.issueId,
+            relatedIssueId: input.relatedIssueId,
+            type:
+              input.relationType === "relates_to"
+                ? "related"
+                : input.relationType === "duplicates"
+                  ? "duplicate"
+                  : input.relationType,
+          },
+        },
+      );
+      return data.issueRelationCreate;
+    }) as any;
 
     return {
       success: Boolean(payload?.success),
       relation: {
-        id: payload?.relation?.id ?? "",
-        type: payload?.relation?.type ?? input.relationType,
+        id: payload?.issueRelation?.id ?? payload?.relation?.id ?? "",
+        type: payload?.issueRelation?.type ?? payload?.relation?.type ?? input.relationType,
       },
     };
   });

@@ -17,6 +17,7 @@ import {
   assignIssue,
   createIssue,
   createIssueRelation,
+  getInstallationIdentity,
   getIssueByIdentifier,
   listIssuesByNumbers,
   listTeamStates,
@@ -24,6 +25,7 @@ import {
   transitionIssueState,
   updateIssue,
 } from "../linear/client";
+import { archiveProject, createProject, getProject, listProjects, updateProject } from "../linear/projects";
 import type { StorageAdapter } from "../storage/types";
 
 const CommentRequestSchema = z.object({
@@ -47,6 +49,11 @@ const AddToProjectInputSchema = z.object({
   projectId: z.string().min(1),
 });
 const AddToProjectRequestSchema = WorkspaceScopedSchema.merge(AddToProjectInputSchema);
+
+const ResolveRequestSchema = z.object({
+  teamKey: z.string().min(1),
+  workspaceId: z.string().min(1).optional(),
+});
 
 export const TaskResultSchema = z.discriminatedUnion("action", [
   z.object({
@@ -162,6 +169,54 @@ async function handleAddToProject(request: Request, env: Env): Promise<Response>
   return json({ ok: true, action: "add_to_project", result });
 }
 
+async function handleResolve(request: Request, env: Env): Promise<Response> {
+  try {
+    const payload = ResolveRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+
+    const { getStorage } = await import("../storage");
+    const storage = getStorage(env);
+
+    // Default workspaceId fallback must match oauth callback fallback.
+    const workspaceId = payload.data.workspaceId ?? "default-workspace";
+    const token = await storage.oauth.get(workspaceId);
+    if (!token?.accessToken) {
+      return json(
+        {
+          ok: false,
+          error: "no_oauth_token",
+          message: `No OAuth token stored for workspace ${workspaceId}. Visit /oauth/start to authorize.`,
+        },
+        { status: 401 },
+      );
+    }
+
+    // identity is useful for debugging; resolves org id.
+    const identity = await getInstallationIdentity(token.accessToken);
+
+    // Resolve teamId by teamKey.
+    const { createLinearSdkClient, sdkRequest } = await import("../linear/sdk");
+    const client = createLinearSdkClient(token.accessToken);
+    const teamsData: any = await sdkRequest<any>(
+      client,
+      `query($teamKey: String!) { teams(filter: { key: { eq: $teamKey } }) { nodes { id key } } }`,
+      { teamKey: payload.data.teamKey },
+    );
+
+    const teamId = teamsData?.teams?.nodes?.[0]?.id;
+    if (!teamId) {
+      return json({ ok: false, error: "team_not_found", teamKey: payload.data.teamKey }, { status: 404 });
+    }
+
+    return json({ ok: true, workspaceId, teamId, identity });
+  } catch (err) {
+    console.error("handleResolve error:", err);
+    return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+  }
+}
+
 const GetIssueRequestSchema = z.object({
   workspaceId: z.string().min(1),
   identifier: z.string().min(1),
@@ -200,12 +255,17 @@ const IssueRelationRequestSchema = z.object({
 });
 
 async function handleCreateIssueRelation(request: Request, env: Env): Promise<Response> {
-  const payload = IssueRelationRequestSchema.safeParse(await parseJson(request));
-  if (!payload.success) {
-    return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+  try {
+    const payload = IssueRelationRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await createIssueRelation(env, payload.data.workspaceId, payload.data);
+    return json({ ok: true, action: "create_relation", result });
+  } catch (err) {
+    console.error("handleCreateIssueRelation error:", err);
+    return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
   }
-  const result = await createIssueRelation(env, payload.data.workspaceId, payload.data);
-  return json({ ok: true, action: "create_relation", result });
 }
 
 const ListIssuesByNumbersRequestSchema = z.object({
@@ -236,6 +296,31 @@ async function handleListTeamStates(request: Request, env: Env): Promise<Respons
   const result = await listTeamStates(env, payload.data.workspaceId, payload.data.teamId);
   return json({ ok: true, action: "list_team_states", result });
 }
+
+const ProjectsListRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  teamId: z.string().min(1),
+});
+const ProjectsGetRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  projectId: z.string().min(1),
+});
+const ProjectsCreateRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  teamId: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+});
+const ProjectsUpdateRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  projectId: z.string().min(1),
+  name: z.string().optional(),
+  description: z.string().optional(),
+});
+const ProjectsDeleteRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  projectId: z.string().min(1),
+});
 
 async function executeTaskAction(
   env: Env,
@@ -315,6 +400,10 @@ export async function handleInternalRequest(
     return handleGetIssue(request, env);
   }
 
+  if (url.pathname === "/internal/linear/resolve" && request.method === "POST") {
+    return handleResolve(request, env);
+  }
+
   if (url.pathname === "/internal/linear/issues/attachment" && request.method === "POST") {
     return handleAddAttachment(request, env);
   }
@@ -329,6 +418,68 @@ export async function handleInternalRequest(
 
   if (url.pathname === "/internal/linear/team/states" && request.method === "POST") {
     return handleListTeamStates(request, env);
+  }
+
+  if (url.pathname === "/internal/linear/team/projects" && request.method === "POST") {
+    const payload = z.object({ workspaceId: z.string().min(1), teamId: z.string().min(1) }).safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await listProjects(env, payload.data.workspaceId, payload.data.teamId);
+    return json({ ok: true, projects: result.projects.map((p: any) => ({ id: p.id, name: p.name })) });
+  }
+
+  if (url.pathname === "/internal/linear/projects/list" && request.method === "POST") {
+    const payload = ProjectsListRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await listProjects(env, payload.data.workspaceId, payload.data.teamId);
+    return json({ ok: true, action: "projects_list", result });
+  }
+
+  if (url.pathname === "/internal/linear/projects/get" && request.method === "POST") {
+    const payload = ProjectsGetRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await getProject(env, payload.data.workspaceId, payload.data.projectId);
+    return json({ ok: true, action: "projects_get", result });
+  }
+
+  if (url.pathname === "/internal/linear/projects/create" && request.method === "POST") {
+    const payload = ProjectsCreateRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await createProject(env, payload.data.workspaceId, {
+      name: payload.data.name,
+      description: payload.data.description,
+      teamId: payload.data.teamId,
+    });
+    return json({ ok: true, action: "projects_create", result });
+  }
+
+  if (url.pathname === "/internal/linear/projects/update" && request.method === "POST") {
+    const payload = ProjectsUpdateRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await updateProject(env, payload.data.workspaceId, {
+      projectId: payload.data.projectId,
+      name: payload.data.name,
+      description: payload.data.description,
+    });
+    return json({ ok: true, action: "projects_update", result });
+  }
+
+  if (url.pathname === "/internal/linear/projects/delete" && request.method === "POST") {
+    const payload = ProjectsDeleteRequestSchema.safeParse(await parseJson(request));
+    if (!payload.success) {
+      return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+    }
+    const result = await archiveProject(env, payload.data.workspaceId, payload.data.projectId);
+    return json({ ok: true, action: "projects_delete", result });
   }
 
   const claimMatch = url.pathname.match(/^\/internal\/tasks\/(.+)\/claim$/);
