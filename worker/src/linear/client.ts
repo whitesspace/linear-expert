@@ -400,6 +400,7 @@ export async function createIssueRelation(env: Env, workspaceId: string, input: 
         `mutation($input: IssueRelationCreateInput!) {
           issueRelationCreate(input: $input) {
             success
+            issueRelation { id type }
           }
         }`,
         {
@@ -416,13 +417,13 @@ export async function createIssueRelation(env: Env, workspaceId: string, input: 
         },
       );
       return data.issueRelationCreate;
-    }) as SdkCreateIssueRelationPayload;
+    }) as any;
 
     return {
       success: Boolean(payload?.success),
       relation: {
-        id: payload?.relation?.id ?? "",
-        type: payload?.relation?.type ?? input.relationType,
+        id: payload?.issueRelation?.id ?? payload?.relation?.id ?? "",
+        type: payload?.issueRelation?.type ?? payload?.relation?.type ?? input.relationType,
       },
     };
   });
