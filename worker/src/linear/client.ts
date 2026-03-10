@@ -45,22 +45,17 @@ export async function linearGraphql<T>(query: string, variables: Record<string, 
 
 export async function getInstallationIdentity(accessToken: string) {
   const query = `query InstallationIdentity {
-    viewer {
-      id
-      name
-    }
-    organization {
-      id
-      name
-      urlKey
-    }
+    viewer { id name }
+    organization { id name urlKey }
   }`;
 
-  // keep as raw GraphQL for now; migrated in WS-52 cleanup.
-  return linearGraphql<{
-    viewer?: { id: string; name: string };
-    organization?: { id: string; name: string; urlKey?: string };
-  }>(query, {}, accessToken);
+  return withSdkClient(accessToken, async (client) => {
+    const { sdkRequest } = await import('./sdk');
+    return sdkRequest<{
+      viewer?: { id: string; name: string };
+      organization?: { id: string; name: string; urlKey?: string };
+    }>(client, query, {});
+  });
 }
 
 async function getValidAccessToken(env: Env, workspaceId: string): Promise<string> {
