@@ -392,11 +392,21 @@ export async function createIssueRelation(env: Env, workspaceId: string, input: 
       relation?: { id: string; type: string } | null;
     };
 
-    const payload = await withSdkClient(accessToken, (client) => (client as any).createIssueRelation({
-      issueId: input.issueId,
-      relatedIssueId: input.relatedIssueId,
-      type: input.relationType as any,
-    })) as SdkCreateIssueRelationPayload;
+    const { sdkRequest } = await import("./sdk");
+    const payload = await withSdkClient(accessToken, async (client) => {
+      // Avoid relying on SDK method presence; call GraphQL directly.
+      const data = await sdkRequest<any>(
+        client,
+        `mutation($input: IssueRelationCreateInput!) {
+          issueRelationCreate(input: $input) {
+            success
+            relation { id type }
+          }
+        }`,
+        { input: { issueId: input.issueId, relatedIssueId: input.relatedIssueId, type: input.relationType } },
+      );
+      return data.issueRelationCreate;
+    }) as SdkCreateIssueRelationPayload;
 
     return {
       success: Boolean(payload?.success),
