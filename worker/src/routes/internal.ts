@@ -27,6 +27,7 @@ import {
 } from "../linear/client";
 import { archiveProject, createProject, getProject, listProjects, updateProject } from "../linear/projects";
 import { triageList } from "../linear/triage";
+import { archiveInitiative, createInitiative, getInitiative, listInitiatives, updateInitiative } from "../linear/initiatives";
 import type { StorageAdapter } from "../storage/types";
 
 const CommentRequestSchema = z.object({
@@ -63,6 +64,36 @@ const TriageListRequestSchema = z.object({
   excludeDone: z.boolean().optional(),
   excludeCancelled: z.boolean().optional(),
   limit: z.number().int().positive().max(100).optional(),
+});
+
+const InitiativesListRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  limit: z.number().int().positive().max(100).optional(),
+});
+
+const InitiativesGetRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
+});
+
+const InitiativesCreateRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional().nullable(),
+  status: z.string().optional().nullable(),
+});
+
+const InitiativesUpdateRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
+  name: z.string().optional(),
+  description: z.string().optional().nullable(),
+  status: z.string().optional().nullable(),
+});
+
+const InitiativesArchiveRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  id: z.string().min(1),
 });
 
 export const TaskResultSchema = z.discriminatedUnion("action", [
@@ -504,6 +535,85 @@ export async function handleInternalRequest(
       limit: payload.data.limit,
     });
     return json({ ok: true, action: "triage_list", result });
+  }
+
+  if (url.pathname === "/internal/linear/initiatives/list" && request.method === "POST") {
+    try {
+      const payload = InitiativesListRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await listInitiatives(env, payload.data.workspaceId, payload.data.limit ?? 25);
+      return json({ ok: true, action: "initiatives_list", result });
+    } catch (err) {
+      console.error("initiatives_list error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/initiatives/get" && request.method === "POST") {
+    try {
+      const payload = InitiativesGetRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await getInitiative(env, payload.data.workspaceId, payload.data.id);
+      return json({ ok: true, action: "initiatives_get", result });
+    } catch (err) {
+      console.error("initiatives_get error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/initiatives/create" && request.method === "POST") {
+    try {
+      const payload = InitiativesCreateRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await createInitiative(env, payload.data.workspaceId, {
+        name: payload.data.name,
+        description: payload.data.description ?? null,
+        status: payload.data.status ?? null,
+      });
+      return json({ ok: true, action: "initiatives_create", result });
+    } catch (err) {
+      console.error("initiatives_create error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/initiatives/update" && request.method === "POST") {
+    try {
+      const payload = InitiativesUpdateRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await updateInitiative(env, payload.data.workspaceId, {
+        id: payload.data.id,
+        name: payload.data.name,
+        description: payload.data.description,
+        status: payload.data.status ?? null,
+      });
+      return json({ ok: true, action: "initiatives_update", result });
+    } catch (err) {
+      console.error("initiatives_update error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
+  }
+
+  if (url.pathname === "/internal/linear/initiatives/archive" && request.method === "POST") {
+    try {
+      const payload = InitiativesArchiveRequestSchema.safeParse(await parseJson(request));
+      if (!payload.success) {
+        return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+      }
+      const result = await archiveInitiative(env, payload.data.workspaceId, payload.data.id);
+      return json({ ok: true, action: "initiatives_archive", result });
+    } catch (err) {
+      console.error("initiatives_archive error:", err);
+      return json({ ok: false, error: "internal_error", message: String(err) }, { status: 500 });
+    }
   }
 
   const claimMatch = url.pathname.match(/^\/internal\/tasks\/(.+)\/claim$/);
