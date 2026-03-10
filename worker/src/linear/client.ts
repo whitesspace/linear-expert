@@ -400,7 +400,6 @@ export async function createIssueRelation(env: Env, workspaceId: string, input: 
         `mutation($input: IssueRelationCreateInput!) {
           issueRelationCreate(input: $input) {
             success
-            relation { id type }
           }
         }`,
         { input: { issueId: input.issueId, relatedIssueId: input.relatedIssueId, type: input.relationType } },
