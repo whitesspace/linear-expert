@@ -270,6 +270,12 @@ const GetIssueRequestSchema = z.object({
   identifier: z.string().min(1),
 });
 
+const IssueChildrenRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  issueId: z.string().min(1),
+  first: z.number().int().positive().max(100).optional(),
+});
+
 async function handleGetIssue(request: Request, env: Env): Promise<Response> {
   const payload = GetIssueRequestSchema.safeParse(await parseJson(request));
   if (!payload.success) {
@@ -277,6 +283,16 @@ async function handleGetIssue(request: Request, env: Env): Promise<Response> {
   }
   const result = await getIssueByIdentifier(env, payload.data.workspaceId, payload.data.identifier);
   return json({ ok: true, action: "get_issue", result });
+}
+
+async function handleListIssueChildren(request: Request, env: Env): Promise<Response> {
+  const payload = IssueChildrenRequestSchema.safeParse(await parseJson(request));
+  if (!payload.success) {
+    return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
+  }
+  const { listIssueChildren } = await import("../linear/client");
+  const result = await listIssueChildren(env, payload.data.workspaceId, payload.data.issueId, payload.data.first ?? 50);
+  return json({ ok: true, action: "issue_children", result });
 }
 
 const AddAttachmentRequestSchema = z.object({
@@ -446,6 +462,10 @@ export async function handleInternalRequest(
 
   if (url.pathname === "/internal/linear/issues/get" && request.method === "POST") {
     return handleGetIssue(request, env);
+  }
+
+  if (url.pathname === "/internal/linear/issues/children" && request.method === "POST") {
+    return handleListIssueChildren(request, env);
   }
 
   if (url.pathname === "/internal/linear/resolve" && request.method === "POST") {
