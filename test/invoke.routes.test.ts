@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import worker from "../worker/src/index";
 
-type TestEnv = Parameters<typeof worker.fetch>[1];
+type WorkerFetch = typeof worker.fetch;
+
+type TestEnv = WorkerFetch extends (request: any, env: infer E, ctx: any) => any
+  ? E
+  : never;
 
 function buildEnv(): TestEnv {
   return {
