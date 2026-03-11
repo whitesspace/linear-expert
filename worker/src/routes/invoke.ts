@@ -6,6 +6,7 @@ import type { StorageAdapter } from "../storage/types";
 import { createAgentActivity } from "../linear/agent";
 import { callOpenClaw } from "../linear/openclaw";
 import { OpenClawIntentSchema } from "./invoke-intent";
+import { clearStop, isStopped, requestStop } from "../storage/stop";
 
 /**
  * WS-37 (stub): Invocation layer reserved routes.
@@ -228,6 +229,8 @@ export async function handleInvokeRequest(
         },
       });
 
+      clearStop(env, payload.data.agentSessionId);
+
       // v0: fan-out to OpenClaw via HTTP. Same secret. Stable mapping: use agentSessionId as sessionKey.
       // OpenClaw side should keep conversation under this sessionKey.
       const oc = await callOpenClaw(env, {
@@ -273,6 +276,18 @@ export async function handleInvokeRequest(
 
           for (const a of parsedIntent.data.actions) {
             if (a.kind === "noop") continue;
+            if (isStopped(env, payload.data.agentSessionId)) {
+              await createAgentActivity(env, payload.data.workspaceId, {
+                agentSessionId: payload.data.agentSessionId,
+                type: "response",
+                content: {
+                  text: "已收到 stop signal，已停止继续执行后续动作。",
+                  traceId,
+                },
+              });
+              failed = true;
+              break;
+            }
 
             await createAgentActivity(env, payload.data.workspaceId, {
               agentSessionId: payload.data.agentSessionId,
@@ -406,36 +421,38 @@ export async function handleInvokeRequest(
   }
 
   if (url.pathname === "/internal/invoke/signal" && request.method === "POST") {
-    // Reserved for stop/auth/select signals.
     const payload = InvokeSignalSchema.safeParse(await parseJson(request));
     if (!payload.success) {
       return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
     }
 
     const traceId = makeTraceId();
-    // Signals are invocation-only; execution layer must not interpret them.
-    // For now we acknowledge and expose a derived prompt for stop/select/auth handling.
     const signalType = payload.data.type;
+
+    if (signalType === "stop" && payload.data.agentSessionId && payload.data.workspaceId) {
+      requestStop(env, payload.data.agentSessionId);
+      await createAgentActivity(env, payload.data.workspaceId, {
+        agentSessionId: payload.data.agentSessionId,
+        type: "response",
+        content: {
+          text: "已收到 stop signal，将立即停止后续动作。",
+          traceId,
+        },
+      });
+
+      return json({ ok: true, traceId, reserved: { receivedType: signalType, stopped: true } }, { status: 200 });
+    }
+
+    // For other signals, just acknowledge with a derived prompt.
     const firstThoughtPrompt = buildFirstThoughtPrompt({
-      eventType: `signal:`,
+      eventType: `signal:${signalType}`,
       agentSessionId: payload.data.agentSessionId,
       workspaceId: payload.data.workspaceId,
       traceId,
       promptContext: payload.data.data,
     });
 
-    return json(
-      {
-        ok: true,
-        traceId,
-        reserved: {
-          note: "WS-37: signal boundary reserved; prompt derived (no execution)",
-          receivedType: signalType,
-          firstThoughtPrompt,
-        },
-      },
-      { status: 200 },
-    );
+    return json({ ok: true, traceId, reserved: { receivedType: signalType, firstThoughtPrompt } }, { status: 200 });
   }
 
   return json({ error: "not found" }, { status: 404 });
