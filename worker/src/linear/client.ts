@@ -386,11 +386,28 @@ export async function addAttachment(env: Env, workspaceId: string, input: AddAtt
       attachment?: { id: string; title: string; url: string } | null;
     };
 
-    const payload = (await withSdkClient(accessToken, (client) => (client as any).createAttachment({
-      issueId: input.issueId,
-      title: input.title,
-      url: input.url,
-    }))) as SdkCreateAttachmentPayload;
+    const { sdkRequest } = await import("./sdk");
+
+    const payload = (await withSdkClient(accessToken, async (client) => {
+      const data = await sdkRequest<{ attachmentCreate: SdkCreateAttachmentPayload }>(
+        client,
+        `mutation($input: AttachmentCreateInput!) {
+          attachmentCreate(input: $input) {
+            success
+            attachment { id title url }
+          }
+        }`,
+        {
+          input: {
+            issueId: input.issueId,
+            title: input.title,
+            url: input.url,
+          },
+        },
+      );
+
+      return data.attachmentCreate;
+    })) as SdkCreateAttachmentPayload;
 
     return {
       success: Boolean(payload?.success),
