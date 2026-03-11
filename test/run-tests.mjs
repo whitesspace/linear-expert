@@ -6,7 +6,8 @@ const tests = [
   'test/signature.test.ts',
   'test/internal.routes.test.ts',
   'test/healthz.test.ts',
-  'test/smoke.contracts.test.ts'
+  'test/smoke.contracts.test.ts',
+  'test/invoke-replay.test.mjs'
 ];
 
 for (const file of tests) {

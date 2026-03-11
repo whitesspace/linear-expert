@@ -309,7 +309,14 @@ async function handleResolve(request: Request, env: Env): Promise<Response> {
     // Resolve teamId by teamKey.
     const { createLinearSdkClient, sdkRequest } = await import("../linear/sdk");
     const client = createLinearSdkClient(token.accessToken);
-    const teamsData: any = await sdkRequest<any>(
+
+    type TeamsByKeyResponse = {
+      teams?: {
+        nodes?: Array<{ id: string; key: string }>;
+      };
+    };
+
+    const teamsData = await sdkRequest<TeamsByKeyResponse>(
       client,
       `query($teamKey: String!) { teams(filter: { key: { eq: $teamKey } }) { nodes { id key } } }`,
       { teamKey: payload.data.teamKey },
@@ -556,7 +563,7 @@ export async function handleInternalRequest(
       return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
     }
     const result = await listProjects(env, payload.data.workspaceId, payload.data.teamId);
-    return json({ ok: true, projects: result.projects.map((p: any) => ({ id: p.id, name: p.name })) });
+    return json({ ok: true, projects: result.projects.map((p) => ({ id: p.id, name: p.name })) });
   }
 
   if (url.pathname === "/internal/linear/projects/list" && request.method === "POST") {

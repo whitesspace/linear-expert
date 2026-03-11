@@ -26,10 +26,35 @@ export interface OAuthStore {
   upsert(record: OAuthTokenRecord): Promise<void>;
 }
 
+export interface TraceStore {
+  // Maps an invocation trace to an agentSessionId and captures minimal audit metadata.
+  set(
+    traceId: string,
+    record: {
+      agentSessionId?: string;
+      workspaceId?: string;
+      eventType: string;
+      createdAt: string; // ISO timestamp
+    },
+  ): Promise<void>;
+
+  get(traceId: string): Promise<
+    | {
+        traceId: string;
+        agentSessionId?: string;
+        workspaceId?: string;
+        eventType: string;
+        createdAt: string;
+      }
+    | null
+  >;
+}
+
 export interface StorageAdapter {
   tasks: TaskStore;
   replies: ReplyStore;
   oauth: OAuthStore;
+  trace: TraceStore;
 }
 
 export type StorageFactory = () => StorageAdapter;

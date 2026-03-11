@@ -1,6 +1,7 @@
 import type { Env } from "./env";
 import { json } from "./lib/http";
 import { handleInternalRequest } from "./routes/internal";
+import { handleInvokeRequest } from "./routes/invoke";
 import { startOauth, oauthCallback } from "./routes/oauth";
 import { handleLinearWebhook } from "./routes/webhooks";
 import { handleDebugComment } from "./routes/debug";
@@ -41,6 +42,11 @@ export default {
       return handleDebugComment(request, env);
     }
 
+    const invokeResponse = await handleInvokeRequest(request, env, storage);
+    if (invokeResponse) {
+      return invokeResponse;
+    }
+
     const internalResponse = await handleInternalRequest(request, env, storage);
     if (internalResponse) {
       return internalResponse;
@@ -71,7 +77,10 @@ export default {
           internalClaim: "POST /internal/tasks/:id/claim",
           internalResult: "POST /internal/tasks/:id/result",
           ...getExecutionLayerRouteMap(),
-          debugComment: "POST /internal/debug/comment"
+          debugComment: "POST /internal/debug/comment",
+          invokeAgentSession: "POST /internal/invoke/agent-session",
+          invokeSignal: "POST /internal/invoke/signal",
+          invokeReplayCreated: "POST /internal/invoke/replay/agent-session-created (dev-only)"
         }
       }, { status: state.ready ? 200 : 503 });
     }
