@@ -2,6 +2,45 @@ import type { Env } from "../env";
 import { withWorkspaceAccessToken } from "./client";
 import { sdkRequest } from "./sdk";
 
+type ListCyclesResponse = {
+  team?: {
+    cycles?: {
+      nodes?: Array<{
+        id: string;
+        number?: number | null;
+        name?: string | null;
+        startsAt?: string | null;
+        endsAt?: string | null;
+      }>;
+    };
+  };
+};
+
+type GetCycleResponse = {
+  cycle?: {
+    id: string;
+    number?: number | null;
+    name?: string | null;
+    startsAt?: string | null;
+    endsAt?: string | null;
+  } | null;
+};
+
+type CreateCycleResponse = {
+  cycleCreate?: {
+    success?: boolean | null;
+    cycle?: { id: string } | null;
+  } | null;
+};
+
+type UpdateCycleResponse = {
+  cycleUpdate?: { success?: boolean | null } | null;
+};
+
+type ArchiveCycleResponse = {
+  cycleArchive?: { success?: boolean | null } | null;
+};
+
 export type CycleSummary = {
   id: string;
   number?: number | null;
@@ -16,7 +55,7 @@ export async function listCycles(env: Env, workspaceId: string, teamId: string, 
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
-    const data: any = await sdkRequest<any>(
+    const data = await sdkRequest<ListCyclesResponse>(
       client,
       `query($teamId: String!, $first: Int!) {
         team(id: $teamId) {
@@ -34,10 +73,10 @@ export async function listCycles(env: Env, workspaceId: string, teamId: string, 
       { teamId, first: limit },
     );
 
-    const nodes: any[] = data?.team?.cycles?.nodes ?? [];
+    const nodes = data?.team?.cycles?.nodes ?? [];
     return {
       success: true,
-      cycles: nodes.map((c: any) => ({
+      cycles: nodes.map((c) => ({
         id: c.id,
         number: c.number ?? null,
         name: c.name ?? null,
@@ -53,7 +92,7 @@ export async function getCycle(env: Env, workspaceId: string, id: string) {
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
-    const data: any = await sdkRequest<any>(
+    const data = await sdkRequest<GetCycleResponse>(
       client,
       `query($id: String!) {
         cycle(id: $id) {
@@ -88,7 +127,7 @@ export async function createCycle(env: Env, workspaceId: string, input: { teamId
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
-    const data: any = await sdkRequest<any>(
+    const data = await sdkRequest<CreateCycleResponse>(
       client,
       `mutation($input: CycleCreateInput!) {
         cycleCreate(input: $input) {
@@ -116,7 +155,7 @@ export async function updateCycle(env: Env, workspaceId: string, id: string, inp
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
-    const data: any = await sdkRequest<any>(
+    const data = await sdkRequest<UpdateCycleResponse>(
       client,
       `mutation($id: String!, $input: CycleUpdateInput!) {
         cycleUpdate(id: $id, input: $input) {
@@ -142,7 +181,7 @@ export async function archiveCycle(env: Env, workspaceId: string, id: string) {
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
-    const data: any = await sdkRequest<any>(
+    const data = await sdkRequest<ArchiveCycleResponse>(
       client,
       `mutation($id: String!) {
         cycleArchive(id: $id) {
