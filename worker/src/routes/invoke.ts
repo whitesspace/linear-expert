@@ -4,6 +4,7 @@ import { json } from "../lib/http";
 import { assertInternalSecret } from "../auth/internal";
 import type { StorageAdapter } from "../storage/types";
 import { createAgentActivity } from "../linear/agent";
+import { callOpenClaw } from "../linear/openclaw";
 
 /**
  * WS-37 (stub): Invocation layer reserved routes.
@@ -101,14 +102,16 @@ function buildFirstThoughtPrompt(input: FirstThoughtInput): string {
   if (sourceHints.length === 0) sourceHints.push("event");
 
   const lines = [
-    "You are the Linear Expert agent invoked by a Linear AgentSessionEvent.",
-    headerParts.length ? `Context: ${headerParts.join(" | ")}` : "Context: (no issue metadata provided)",
-    `Sources present: ${sourceHints.join(", ")}.`,
+    "我是 Linear Expert（agent/app），以下内容由 agent 自动生成。",
+    headerParts.length ? `上下文: ${headerParts.join(" | ")}` : "上下文: (缺少 issue 元数据)",
+    `可用信息源: ${sourceHints.join(", ")}.`,
     "",
-    "Objective (first 10s): emit a concise thought activity that reflects the real issue context.",
-    "Do NOT execute actions yet in this step; only outline intent + immediate next check.",
+    "我会按以下节奏推进：",
+    "1) 读取 promptContext/issue/guidance 与最近评论，确认用户意图与约束",
+    "2) 生成结构化执行意图（仅限 execution layer 允许的动作集合）",
+    "3) 执行 Linear 原生动作并回写 AgentActivities（action/response/error）",
     "",
-    `Task: ${task}`,
+    `当前任务: ${task}`,
   ];
 
   if (guidanceText) {
@@ -223,6 +226,43 @@ export async function handleInvokeRequest(
           traceId,
         },
       });
+
+      // v0: fan-out to OpenClaw via HTTP. Same secret. Stable mapping: use agentSessionId as sessionKey.
+      // OpenClaw side should keep conversation under this sessionKey.
+      const oc = await callOpenClaw(env, {
+        traceId,
+        sessionKey: payload.data.agentSessionId,
+        prompt: firstThoughtPrompt,
+        context: {
+          eventType: payload.data.type,
+          workspaceId: payload.data.workspaceId,
+          agentSessionId: payload.data.agentSessionId,
+          promptContext: payload.data.promptContext,
+          issue: payload.data.issue,
+          guidance: payload.data.guidance,
+        },
+      });
+
+      if (!oc.ok) {
+        await createAgentActivity(env, payload.data.workspaceId, {
+          agentSessionId: payload.data.agentSessionId,
+          type: "error",
+          content: {
+            text: `OpenClaw 调用失败：${oc.error}`,
+            traceId,
+          },
+        });
+      } else {
+        await createAgentActivity(env, payload.data.workspaceId, {
+          agentSessionId: payload.data.agentSessionId,
+          type: "action",
+          content: {
+            text: "已收到 OpenClaw 结构化意图（v0 暂未执行到 execution layer）。",
+            traceId,
+            intent: oc.intent,
+          },
+        });
+      }
     }
 
     const body = InvokeResponseSchema.parse({
