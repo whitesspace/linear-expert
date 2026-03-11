@@ -83,7 +83,7 @@ export function parseLinearWebhook(raw: unknown, rawBody: string): NewTaskRecord
   const newTask: NewTaskRecord = {
     source: "linear",
     eventType,
-    webhookId: envelope.id,
+    webhookId: envelope.id ?? (envelope as any).webhookId,
     workspaceId: pickWorkspaceId(envelope as Record<string, unknown>),
     organizationId: asString(envelope.organizationId) ?? null,
     issueId,

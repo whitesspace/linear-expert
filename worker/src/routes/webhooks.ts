@@ -69,6 +69,43 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
     return json({ status: "accepted", kind: "agentSession", invokeStatus: resp.status }, { status: 200 });
   }
 
+  // WS-37: Comment fallback invocation (C):
+  // - trigger if isArtificialAgentSessionRoot=true OR comment body contains @/mention-like token.
+  if (linearEvent === "Comment") {
+    const bodyText = String((parsed as any)?.data?.body ?? "");
+    const isRoot = Boolean((parsed as any)?.data?.isArtificialAgentSessionRoot);
+    const hasMention = bodyText.includes("@") || bodyText.includes("/expert") || bodyText.includes("/agent") || bodyText.includes("/invoke");
+
+    if (isRoot || hasMention) {
+      const data = (parsed as any)?.data ?? {};
+      const invokePayload = {
+        type: `AgentSessionEvent.created`,
+        createdAt: (parsed as any)?.createdAt ?? data?.createdAt,
+        agentSessionId: undefined,
+        workspaceId: (parsed as any)?.organizationId ?? data?.organizationId,
+        promptContext: {
+          issue: data?.issue,
+          comment: { body: data?.body, id: data?.id },
+        },
+        issue: data?.issue,
+        guidance: undefined,
+      };
+
+      const url = new URL(request.url);
+      const invokeUrl = `${url.origin}/internal/invoke/agent-session`;
+      const resp = await fetch(invokeUrl, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${env.OPENCLAW_INTERNAL_SECRET}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(invokePayload),
+      });
+
+      return json({ status: "accepted", kind: "comment_fallback", invokeStatus: resp.status }, { status: 200 });
+    }
+  }
+
   // For all other events, try the existing task-queue parser; if unsupported, ignore quietly.
   const newTask = parseLinearWebhook(parsed, rawBody);
   if (!newTask) {
