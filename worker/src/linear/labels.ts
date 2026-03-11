@@ -16,7 +16,19 @@ export async function listIssueLabels(env: Env, workspaceId: string, first: numb
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
-    const data: any = await sdkRequest<any>(
+    type ListIssueLabelsResponse = {
+      issueLabels?: {
+        nodes?: Array<{
+          id: string;
+          name: string;
+          color?: string | null;
+          description?: string | null;
+          isGroup?: boolean | null;
+        }>;
+      };
+    };
+
+    const data = await sdkRequest<ListIssueLabelsResponse>(
       client,
       `query($first: Int!) {
         issueLabels(first: $first) {
@@ -32,10 +44,10 @@ export async function listIssueLabels(env: Env, workspaceId: string, first: numb
       { first: limit },
     );
 
-    const nodes: any[] = data?.issueLabels?.nodes ?? [];
+    const nodes = data?.issueLabels?.nodes ?? [];
     return {
       success: true,
-      labels: nodes.map((l: any) => ({
+      labels: nodes.map((l) => ({
         id: l.id,
         name: l.name,
         color: l.color ?? null,
