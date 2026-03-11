@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import { json } from "../lib/http";
+import { createAgentSessionOnComment } from "../linear/agent";
 import { parseLinearWebhook } from "../linear/parser";
 import { verifyLinearSignature } from "../linear/signature";
 import type { StorageAdapter } from "../storage/types";
@@ -45,14 +46,18 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
   const eventType = (parsed as any)?.type;
   if (eventType === "AgentSessionEvent" || String(eventType || "").includes("AgentSession") || linearEvent.includes("AgentSession")) {
     const data = (parsed as any)?.data ?? {};
+    const agentSession = (parsed as any)?.agentSession ?? data?.agentSession;
+    const agentActivity = (parsed as any)?.agentActivity ?? data?.agentActivity;
     const invokePayload = {
       type: `AgentSessionEvent.${(parsed as any)?.action ?? "created"}`,
       createdAt: (parsed as any)?.createdAt ?? data?.createdAt,
-      agentSessionId: data?.agentSessionId ?? data?.id ?? (parsed as any)?.agentSessionId,
-      workspaceId: (parsed as any)?.organizationId ?? data?.organizationId ?? data?.workspaceId,
+      agentSessionId: agentSession?.id ?? data?.agentSessionId ?? data?.id ?? (parsed as any)?.agentSessionId,
+      workspaceId: (parsed as any)?.organizationId ?? agentSession?.organizationId ?? data?.organizationId ?? data?.workspaceId,
       promptContext: data?.promptContext ?? (parsed as any)?.promptContext,
-      issue: data?.issue ?? (parsed as any)?.issue,
+      issue: agentSession?.issue ?? data?.issue ?? (parsed as any)?.issue,
       guidance: data?.guidance ?? (parsed as any)?.guidance,
+      agentActivity,
+      previousComments: (parsed as any)?.previousComments ?? data?.previousComments,
     };
 
     const url = new URL(request.url);
@@ -78,31 +83,18 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
 
     if (isRoot || hasMention) {
       const data = (parsed as any)?.data ?? {};
-      const invokePayload = {
-        type: `AgentSessionEvent.created`,
-        createdAt: (parsed as any)?.createdAt ?? data?.createdAt,
-        agentSessionId: undefined,
-        workspaceId: (parsed as any)?.organizationId ?? data?.organizationId,
-        promptContext: {
-          issue: data?.issue,
-          comment: { body: data?.body, id: data?.id },
-        },
-        issue: data?.issue,
-        guidance: undefined,
-      };
+      const workspaceId = (parsed as any)?.organizationId ?? data?.organizationId;
+      if (!workspaceId || !data?.id) {
+        return json({ status: "skipped", kind: "comment_fallback", reason: "missing workspaceId/commentId" }, { status: 200 });
+      }
 
-      const url = new URL(request.url);
-      const invokeUrl = `${url.origin}/internal/invoke/agent-session`;
-      const resp = await fetch(invokeUrl, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${env.OPENCLAW_INTERNAL_SECRET}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(invokePayload),
-      });
-
-      return json({ status: "accepted", kind: "comment_fallback", invokeStatus: resp.status }, { status: 200 });
+      try {
+        const session = await createAgentSessionOnComment(env, workspaceId, data.id);
+        return json({ status: "accepted", kind: "comment_fallback", session }, { status: 200 });
+      } catch (error) {
+        console.error("comment_fallback create session error", error);
+        return json({ status: "error", kind: "comment_fallback", message: String(error) }, { status: 200 });
+      }
     }
   }
 

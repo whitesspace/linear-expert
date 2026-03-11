@@ -48,7 +48,11 @@ async function run() {
           "content-type": "application/json",
           authorization: "Bearer internal_secret",
         },
-        body: JSON.stringify({ type: "agent_session.created" }),
+        body: JSON.stringify({
+          type: "AgentSessionEvent.created",
+          promptContext: "Task: reply to the user quickly.",
+          agentActivity: { body: "Hello?" },
+        }),
       }),
       env,
       {} as ExecutionContext,
@@ -64,6 +68,8 @@ async function run() {
       traceStore?: unknown;
     };
     assert.ok(typeof reserved.firstThoughtPrompt === "string");
+    assert.match(reserved.firstThoughtPrompt, /Task: reply to the user quickly/);
+    assert.match(reserved.firstThoughtPrompt, /Hello\?/);
 
     const traceStore = (reserved.traceStore ?? {}) as {
       wrote?: unknown;
@@ -71,9 +77,8 @@ async function run() {
       workspaceId?: unknown;
     };
     assert.equal(traceStore.wrote, true);
-    // Ensure key identifiers are echoed for later persistence/replay wiring.
-    assert.ok(typeof traceStore.agentSessionId === "string" && traceStore.agentSessionId.length > 0);
-    assert.ok(typeof traceStore.workspaceId === "string" && traceStore.workspaceId.length > 0);
+    assert.equal(traceStore.agentSessionId, undefined);
+    assert.equal(traceStore.workspaceId, undefined);
   }
 
   // Dev replay endpoint: secret-protected and runs through same pipeline shape

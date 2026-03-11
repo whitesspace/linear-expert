@@ -27,6 +27,8 @@ const AgentSessionEventSchema = z.object({
   promptContext: z.unknown().optional(),
   issue: z.unknown().optional(),
   guidance: z.unknown().optional(),
+  agentActivity: z.unknown().optional(),
+  previousComments: z.unknown().optional(),
 });
 
 type FirstThoughtInput = {
@@ -37,6 +39,7 @@ type FirstThoughtInput = {
   promptContext?: unknown;
   issue?: unknown;
   guidance?: unknown;
+  latestUserMessage?: string;
 };
 
 function pickString(obj: unknown, path: string[]): string | undefined {
@@ -50,6 +53,24 @@ function pickString(obj: unknown, path: string[]): string | undefined {
   }
   if (typeof cur === "string") return cur.trim() || undefined;
   return undefined;
+}
+
+function extractPromptContextText(promptContext: unknown): string | undefined {
+  if (typeof promptContext === "string") {
+    return promptContext.trim() || undefined;
+  }
+  if (promptContext && typeof promptContext === "object") {
+    const maybeText =
+      pickString(promptContext, ["text"]) ||
+      pickString(promptContext, ["comment", "body"]) ||
+      pickString(promptContext, ["comment", "text"]);
+    return maybeText;
+  }
+  return undefined;
+}
+
+function extractAgentActivityBody(agentActivity: unknown): string | undefined {
+  return pickString(agentActivity, ["body"]);
 }
 
 function buildFirstThoughtPrompt(input: FirstThoughtInput): string {
@@ -78,6 +99,8 @@ function buildFirstThoughtPrompt(input: FirstThoughtInput): string {
     pickString(input.promptContext, ["comment"]) ||
     pickString(input.promptContext, ["latestComment", "body"]);
 
+  const promptContextText = extractPromptContextText(input.promptContext);
+
   const workspaceHint = input.workspaceId ? `workspace=${input.workspaceId}` : undefined;
   const sessionHint = input.agentSessionId ? `agentSessionId=${input.agentSessionId}` : undefined;
   const traceHint = input.traceId ? `traceId=${input.traceId}` : undefined;
@@ -94,11 +117,14 @@ function buildFirstThoughtPrompt(input: FirstThoughtInput): string {
     pickString(input.promptContext, ["task"]) ||
     pickString(input.promptContext, ["intent"]) ||
     pickString(input.promptContext, ["userRequest"]) ||
+    (input.latestUserMessage ? "Respond to the latest user message in this agent session." : undefined) ||
     (recentComment ? `Respond to the latest comment and take appropriate Linear-native actions.` : undefined) ||
     `Handle AgentSessionEvent type=${input.eventType}.`;
 
   const sourceHints: string[] = [];
   if (guidanceText) sourceHints.push("guidance");
+  if (promptContextText) sourceHints.push("promptContext");
+  if (input.latestUserMessage) sourceHints.push("userMessage");
   if (recentComment) sourceHints.push("comment");
   if (issueTitle || issueIdentifier) sourceHints.push("issue");
   if (sourceHints.length === 0) sourceHints.push("event");
@@ -118,6 +144,14 @@ function buildFirstThoughtPrompt(input: FirstThoughtInput): string {
 
   if (guidanceText) {
     lines.push("", "Guidance:", guidanceText);
+  }
+
+  if (promptContextText) {
+    lines.push("", "PromptContext:", promptContextText);
+  }
+
+  if (input.latestUserMessage) {
+    lines.push("", "Latest user message:", input.latestUserMessage);
   }
 
   if (recentComment) {
@@ -200,6 +234,8 @@ export async function handleInvokeRequest(
 
     const traceId = makeTraceId();
 
+    const latestUserMessage = extractAgentActivityBody(payload.data.agentActivity);
+
     const firstThoughtPrompt = buildFirstThoughtPrompt({
       eventType: payload.data.type,
       agentSessionId: payload.data.agentSessionId,
@@ -208,6 +244,7 @@ export async function handleInvokeRequest(
       promptContext: payload.data.promptContext,
       issue: payload.data.issue,
       guidance: payload.data.guidance,
+      latestUserMessage,
     });
 
     // WS-37: write trace -> agentSessionId/workspaceId map for later correlation.
@@ -218,14 +255,13 @@ export async function handleInvokeRequest(
       createdAt: new Date().toISOString(),
     });
 
-    // v0: write the first AgentActivity(thought) back to Linear within the 60s budget.
+    // v0: write the first AgentActivity(thought) back to Linear within the 10s budget.
     if (payload.data.workspaceId && payload.data.agentSessionId) {
       await createAgentActivity(env, payload.data.workspaceId, {
         agentSessionId: payload.data.agentSessionId,
         type: "thought",
         content: {
-          text: firstThoughtPrompt,
-          traceId,
+          body: firstThoughtPrompt,
         },
       });
 
@@ -242,8 +278,11 @@ export async function handleInvokeRequest(
           workspaceId: payload.data.workspaceId,
           agentSessionId: payload.data.agentSessionId,
           promptContext: payload.data.promptContext,
+          promptContextText: extractPromptContextText(payload.data.promptContext),
+          latestUserMessage,
           issue: payload.data.issue,
           guidance: payload.data.guidance,
+          previousComments: payload.data.previousComments,
         },
       });
 
@@ -252,21 +291,19 @@ export async function handleInvokeRequest(
           agentSessionId: payload.data.agentSessionId,
           type: "error",
           content: {
-            text: `OpenClaw 调用失败：${oc.error}`,
-            traceId,
+            body: `OpenClaw 调用失败：${oc.error}`,
           },
         });
       } else {
         const parsedIntent = OpenClawIntentSchema.safeParse(oc.intent);
         if (!parsedIntent.success) {
+          const errorDetail = JSON.stringify(parsedIntent.error.flatten());
+          const rawIntent = JSON.stringify(oc.intent ?? null).slice(0, 800);
           await createAgentActivity(env, payload.data.workspaceId, {
             agentSessionId: payload.data.agentSessionId,
             type: "error",
             content: {
-              text: "OpenClaw intent schema 无法解析（v0 期望 {actions:[...] }）",
-              traceId,
-              details: parsedIntent.error.flatten(),
-              raw: oc.intent,
+              body: `OpenClaw intent schema 无法解析（v0 期望 {actions:[...] }）。details=${errorDetail} raw=${rawIntent}`,
             },
           });
         } else {
@@ -281,20 +318,28 @@ export async function handleInvokeRequest(
                 agentSessionId: payload.data.agentSessionId,
                 type: "response",
                 content: {
-                  text: "已收到 stop signal，已停止继续执行后续动作。",
-                  traceId,
+                  body: "已收到 stop signal，已停止继续执行后续动作。",
                 },
               });
               failed = true;
               break;
             }
 
+            const actionParameter = JSON.stringify({
+              issueId: a.issueId,
+              issueIdentifier: a.issueIdentifier,
+              stateId: a.stateId,
+              assigneeId: a.assigneeId,
+              body: a.body,
+              reason: a.reason,
+            });
+
             await createAgentActivity(env, payload.data.workspaceId, {
               agentSessionId: payload.data.agentSessionId,
               type: "action",
               content: {
-                text: `执行: ${a.kind} (${a.issueId || a.issueIdentifier || ""})`,
-                traceId,
+                action: a.kind,
+                parameter: actionParameter,
               },
             });
 
@@ -328,9 +373,7 @@ export async function handleInvokeRequest(
                 agentSessionId: payload.data.agentSessionId,
                 type: "error",
                 content: {
-                  text: `${a.kind} 执行失败: ${r.status}`,
-                  traceId,
-                  details: t.slice(0, 800),
+                  body: `${a.kind} 执行失败: ${r.status} ${t.slice(0, 800)}`,
                 },
               });
               failed = true;
@@ -343,8 +386,7 @@ export async function handleInvokeRequest(
               agentSessionId: payload.data.agentSessionId,
               type: "response",
               content: {
-                text: "已执行 OpenClaw intent 并完成回写（v0）。",
-                traceId,
+                body: "已执行 OpenClaw intent 并完成回写（v0）。",
               },
             });
           }
@@ -384,6 +426,8 @@ export async function handleInvokeRequest(
       return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
     }
 
+    const latestUserMessage = extractAgentActivityBody(payload.data.agentActivity);
+
     const firstThoughtPrompt = buildFirstThoughtPrompt({
       eventType: payload.data.type || "AgentSessionEvent.created",
       agentSessionId: payload.data.agentSessionId,
@@ -392,6 +436,7 @@ export async function handleInvokeRequest(
       promptContext: payload.data.promptContext,
       issue: payload.data.issue,
       guidance: payload.data.guidance,
+      latestUserMessage,
     });
 
     // WS-37: keep replay endpoint consistent with production invocation by writing trace correlation too.
@@ -435,8 +480,7 @@ export async function handleInvokeRequest(
         agentSessionId: payload.data.agentSessionId,
         type: "response",
         content: {
-          text: "已收到 stop signal，将立即停止后续动作。",
-          traceId,
+          body: "已收到 stop signal，将立即停止后续动作。",
         },
       });
 
