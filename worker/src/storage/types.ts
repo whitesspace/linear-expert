@@ -1,4 +1,10 @@
 import type {
+  AgentRunFilter,
+  AgentRunRecord,
+  AgentRunResultPatch,
+  NewAgentRunRecord,
+} from "../domain/agent-run";
+import type {
   NewTaskRecord,
   OAuthTokenRecord,
   ReplyDraft,
@@ -15,6 +21,14 @@ export interface TaskStore {
   listByStatus(filter: TaskFilter): Promise<TaskRecord[]>;
   claim(taskId: string, lockDurationSeconds: number): Promise<TaskRecord | null>;
   applyResult(taskId: string, patch: TaskResultPatch): Promise<TaskRecord | null>;
+}
+
+export interface AgentRunStore {
+  create(run: NewAgentRunRecord): Promise<AgentRunRecord>;
+  findById(runId: string): Promise<AgentRunRecord | null>;
+  listByStatus(filter: AgentRunFilter): Promise<AgentRunRecord[]>;
+  claim(runId: string, lockDurationSeconds: number): Promise<AgentRunRecord | null>;
+  applyResult(runId: string, patch: AgentRunResultPatch): Promise<AgentRunRecord | null>;
 }
 
 export interface ReplyStore {
@@ -52,6 +66,7 @@ export interface TraceStore {
 
 export interface StorageAdapter {
   tasks: TaskStore;
+  agentRuns: AgentRunStore;
   replies: ReplyStore;
   oauth: OAuthStore;
   trace: TraceStore;

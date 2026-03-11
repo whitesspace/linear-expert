@@ -7,6 +7,9 @@ const tests = [
   'test/internal.routes.test.ts',
   'test/healthz.test.ts',
   'test/smoke.contracts.test.ts',
+  'test/webhooks.agent-session.test.ts',
+  'test/agent-runs.routes.test.ts',
+  'test/openclaw.runner-utils.test.ts',
   'test/invoke-replay.test.mjs'
 ];
 

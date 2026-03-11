@@ -1,4 +1,10 @@
 import type {
+  AgentRunFilter,
+  AgentRunRecord,
+  AgentRunResultPatch,
+  NewAgentRunRecord,
+} from "../domain/agent-run";
+import type {
   NewTaskRecord,
   OAuthTokenRecord,
   ReplyDraft,
@@ -7,7 +13,7 @@ import type {
   TaskRecord,
   TaskResultPatch,
 } from "../domain/task";
-import type { OAuthStore, ReplyStore, StorageAdapter, TaskStore, TraceStore } from "./types";
+import type { AgentRunStore, OAuthStore, ReplyStore, StorageAdapter, TaskStore, TraceStore } from "./types";
 
 const ISO = () => new Date().toISOString();
 
@@ -32,6 +38,21 @@ function mapTaskRow(row: Record<string, unknown>): TaskRecord {
     resultAction: (row.result_action as TaskRecord["resultAction"]) ?? undefined,
     resultReason: (row.result_reason as string) ?? null,
     replyBody: (row.reply_body as string) ?? null,
+  };
+}
+
+function mapAgentRunRow(row: Record<string, unknown>): AgentRunRecord {
+  return {
+    id: row.id as string,
+    agentSessionId: row.agent_session_id as string,
+    workspaceId: row.workspace_id as string,
+    eventType: row.event_type as string,
+    traceId: row.trace_id as string,
+    payloadJson: row.payload_json as string,
+    status: row.status as AgentRunRecord["status"],
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+    lockExpiresAt: (row.lock_expires_at as string) ?? null,
   };
 }
 
@@ -141,6 +162,102 @@ class D1TaskStore implements TaskStore {
       return null;
     }
     return mapTaskRow(rows.results[0]);
+  }
+}
+
+class D1AgentRunStore implements AgentRunStore {
+  constructor(private readonly db: D1Database) {}
+
+  async create(run: NewAgentRunRecord): Promise<AgentRunRecord> {
+    const now = ISO();
+    const id = crypto.randomUUID();
+    await this.db
+      .prepare(
+        `INSERT INTO agent_runs (
+          id, agent_session_id, workspace_id, event_type, trace_id,
+          payload_json, status, created_at, updated_at, lock_expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL)`
+      )
+      .bind(
+        id,
+        run.agentSessionId,
+        run.workspaceId,
+        run.eventType,
+        run.traceId,
+        run.payloadJson,
+        now,
+        now,
+      )
+      .run();
+    return {
+      ...run,
+      id,
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+      lockExpiresAt: null,
+    };
+  }
+
+  async findById(runId: string): Promise<AgentRunRecord | null> {
+    const result = await this.db
+      .prepare(`SELECT * FROM agent_runs WHERE id = ? LIMIT 1`)
+      .bind(runId)
+      .first();
+    return result ? mapAgentRunRow(result) : null;
+  }
+
+  async listByStatus(filter: AgentRunFilter): Promise<AgentRunRecord[]> {
+    const limit = filter.limit ?? 25;
+    const results = await this.db
+      .prepare(
+        `SELECT * FROM agent_runs WHERE status = ?
+         ORDER BY created_at ASC LIMIT ?`
+      )
+      .bind(filter.status, limit)
+      .all();
+    return (results.results ?? []).map(mapAgentRunRow);
+  }
+
+  async claim(runId: string, lockDurationSeconds: number): Promise<AgentRunRecord | null> {
+    const nowIso = ISO();
+    const lockExpiresAt = new Date(Date.now() + lockDurationSeconds * 1000).toISOString();
+    const rows = await this.db
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'processing', lock_expires_at = ?, updated_at = ?
+         WHERE id = ? AND (status IN ('pending', 'processing') AND (lock_expires_at IS NULL OR lock_expires_at <= ?))
+         RETURNING *`
+      )
+      .bind(lockExpiresAt, nowIso, runId, nowIso)
+      .all();
+    if (!rows.results?.length) {
+      return null;
+    }
+    return mapAgentRunRow(rows.results[0]);
+  }
+
+  async applyResult(runId: string, patch: AgentRunResultPatch): Promise<AgentRunRecord | null> {
+    const now = ISO();
+    const rows = await this.db
+      .prepare(
+        `UPDATE agent_runs SET
+          status = ?,
+          lock_expires_at = NULL,
+          updated_at = ?
+        WHERE id = ?
+        RETURNING *`
+      )
+      .bind(
+        patch.status,
+        now,
+        runId,
+      )
+      .all();
+    if (!rows.results?.length) {
+      return null;
+    }
+    return mapAgentRunRow(rows.results[0]);
   }
 }
 
@@ -277,12 +394,14 @@ class D1TraceStore implements TraceStore {
 
 export class D1Storage implements StorageAdapter {
   readonly tasks: TaskStore;
+  readonly agentRuns: AgentRunStore;
   readonly replies: ReplyStore;
   readonly oauth: OAuthStore;
   readonly trace: TraceStore;
 
   constructor(db: D1Database) {
     this.tasks = new D1TaskStore(db);
+    this.agentRuns = new D1AgentRunStore(db);
     this.replies = new D1ReplyStore(db);
     this.oauth = new D1OAuthStore(db);
     this.trace = new D1TraceStore(db);

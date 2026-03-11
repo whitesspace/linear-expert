@@ -4,9 +4,7 @@ import { json } from "../lib/http";
 import { assertInternalSecret } from "../auth/internal";
 import type { StorageAdapter } from "../storage/types";
 import { createAgentActivity } from "../linear/agent";
-import { callOpenClaw } from "../linear/openclaw";
-import { OpenClawIntentSchema } from "./invoke-intent";
-import { clearStop, isStopped, requestStop } from "../storage/stop";
+import { clearStop, requestStop } from "../storage/stop";
 
 /**
  * WS-37 (stub): Invocation layer reserved routes.
@@ -255,8 +253,11 @@ export async function handleInvokeRequest(
       createdAt: new Date().toISOString(),
     });
 
+    const hasSession = Boolean(payload.data.workspaceId && payload.data.agentSessionId);
+    const isCreatedEvent = payload.data.type.includes("created");
+
     // v0: write the first AgentActivity(thought) back to Linear within the 10s budget.
-    if (payload.data.workspaceId && payload.data.agentSessionId) {
+    if (hasSession && isCreatedEvent) {
       await createAgentActivity(env, payload.data.workspaceId, {
         agentSessionId: payload.data.agentSessionId,
         type: "thought",
@@ -266,12 +267,11 @@ export async function handleInvokeRequest(
       });
 
       clearStop(env, payload.data.agentSessionId);
+    }
 
-      // v0: fan-out to OpenClaw via HTTP. Same secret. Stable mapping: use agentSessionId as sessionKey.
-      // OpenClaw side should keep conversation under this sessionKey.
-      const oc = await callOpenClaw(env, {
-        traceId,
-        sessionKey: payload.data.agentSessionId,
+    let queuedRunId: string | null = null;
+    if (hasSession) {
+      const runPayload = {
         prompt: firstThoughtPrompt,
         context: {
           eventType: payload.data.type,
@@ -284,114 +284,15 @@ export async function handleInvokeRequest(
           guidance: payload.data.guidance,
           previousComments: payload.data.previousComments,
         },
+      };
+      const run = await storage.agentRuns.create({
+        traceId,
+        agentSessionId: payload.data.agentSessionId,
+        workspaceId: payload.data.workspaceId,
+        eventType: payload.data.type,
+        payloadJson: JSON.stringify(runPayload),
       });
-
-      if (!oc.ok) {
-        await createAgentActivity(env, payload.data.workspaceId, {
-          agentSessionId: payload.data.agentSessionId,
-          type: "error",
-          content: {
-            body: `OpenClaw 调用失败：${oc.error}`,
-          },
-        });
-      } else {
-        const parsedIntent = OpenClawIntentSchema.safeParse(oc.intent);
-        if (!parsedIntent.success) {
-          const errorDetail = JSON.stringify(parsedIntent.error.flatten());
-          const rawIntent = JSON.stringify(oc.intent ?? null).slice(0, 800);
-          await createAgentActivity(env, payload.data.workspaceId, {
-            agentSessionId: payload.data.agentSessionId,
-            type: "error",
-            content: {
-              body: `OpenClaw intent schema 无法解析（v0 期望 {actions:[...] }）。details=${errorDetail} raw=${rawIntent}`,
-            },
-          });
-        } else {
-          // v0: execute intent actions via execution-layer internal routes.
-          const execUrl = new URL(request.url);
-          let failed = false;
-
-          for (const a of parsedIntent.data.actions) {
-            if (a.kind === "noop") continue;
-            if (isStopped(env, payload.data.agentSessionId)) {
-              await createAgentActivity(env, payload.data.workspaceId, {
-                agentSessionId: payload.data.agentSessionId,
-                type: "response",
-                content: {
-                  body: "已收到 stop signal，已停止继续执行后续动作。",
-                },
-              });
-              failed = true;
-              break;
-            }
-
-            const actionParameter = JSON.stringify({
-              issueId: a.issueId,
-              issueIdentifier: a.issueIdentifier,
-              stateId: a.stateId,
-              assigneeId: a.assigneeId,
-              body: a.body,
-              reason: a.reason,
-            });
-
-            await createAgentActivity(env, payload.data.workspaceId, {
-              agentSessionId: payload.data.agentSessionId,
-              type: "action",
-              content: {
-                action: a.kind,
-                parameter: actionParameter,
-              },
-            });
-
-            let path = "";
-            let body: Record<string, unknown> = { workspaceId: payload.data.workspaceId };
-
-            if (a.kind === "comment") {
-              path = "/internal/linear/comment";
-              body = { ...body, issueId: a.issueId, issueIdentifier: a.issueIdentifier, body: a.body || "" };
-            } else if (a.kind === "assign") {
-              path = "/internal/linear/issues/assign";
-              body = { ...body, issueId: a.issueId, assigneeId: a.assigneeId };
-            } else if (a.kind === "transition") {
-              path = "/internal/linear/issues/state";
-              // require stateId in v0 (no name resolve here)
-              body = { ...body, issueId: a.issueId, stateId: a.stateId };
-            }
-
-            const r = await fetch(`${execUrl.origin}${path}`, {
-              method: "POST",
-              headers: {
-                authorization: `Bearer ${env.OPENCLAW_INTERNAL_SECRET}`,
-                "content-type": "application/json",
-              },
-              body: JSON.stringify(body),
-            });
-
-            if (!r.ok) {
-              const t = await r.text();
-              await createAgentActivity(env, payload.data.workspaceId, {
-                agentSessionId: payload.data.agentSessionId,
-                type: "error",
-                content: {
-                  body: `${a.kind} 执行失败: ${r.status} ${t.slice(0, 800)}`,
-                },
-              });
-              failed = true;
-              break;
-            }
-          }
-
-          if (!failed) {
-            await createAgentActivity(env, payload.data.workspaceId, {
-              agentSessionId: payload.data.agentSessionId,
-              type: "response",
-              content: {
-                body: "已执行 OpenClaw intent 并完成回写（v0）。",
-              },
-            });
-          }
-        }
-      }
+      queuedRunId = run.id;
     }
 
     const body = InvokeResponseSchema.parse({
@@ -401,6 +302,7 @@ export async function handleInvokeRequest(
         receivedType: payload.data.type,
         firstThoughtPrompt,
         wroteThought: !!(payload.data.workspaceId && payload.data.agentSessionId),
+        queuedRunId,
         traceStore: {
           wrote: true,
           agentSessionId: payload.data.agentSessionId,

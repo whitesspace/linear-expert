@@ -92,8 +92,12 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
         const session = await createAgentSessionOnComment(env, workspaceId, data.id);
         return json({ status: "accepted", kind: "comment_fallback", session }, { status: 200 });
       } catch (error) {
+        const message = String(error ?? "");
+        if (message.toLowerCase().includes("already has an agent session")) {
+          return json({ status: "accepted", kind: "comment_fallback", reason: "already_has_session" }, { status: 200 });
+        }
         console.error("comment_fallback create session error", error);
-        return json({ status: "error", kind: "comment_fallback", message: String(error) }, { status: 200 });
+        return json({ status: "error", kind: "comment_fallback", message }, { status: 200 });
       }
     }
   }

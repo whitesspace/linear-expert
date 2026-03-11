@@ -1,4 +1,10 @@
 import type {
+  AgentRunFilter,
+  AgentRunRecord,
+  AgentRunResultPatch,
+  NewAgentRunRecord,
+} from "../domain/agent-run";
+import type {
   NewTaskRecord,
   OAuthTokenRecord,
   ReplyDraft,
@@ -7,7 +13,7 @@ import type {
   TaskRecord,
   TaskResultPatch,
 } from "../domain/task";
-import type { OAuthStore, ReplyStore, StorageAdapter, TaskStore, TraceStore } from "./types";
+import type { AgentRunStore, OAuthStore, ReplyStore, StorageAdapter, TaskStore, TraceStore } from "./types";
 
 const ISO = () => new Date().toISOString();
 
@@ -98,6 +104,85 @@ class InMemoryTaskStore implements TaskStore {
   }
 }
 
+class InMemoryAgentRunStore implements AgentRunStore {
+  private runs = new Map<string, AgentRunRecord>();
+
+  async create(run: NewAgentRunRecord): Promise<AgentRunRecord> {
+    const now = ISO();
+    const record: AgentRunRecord = {
+      ...run,
+      id: crypto.randomUUID(),
+      status: "pending",
+      createdAt: now,
+      updatedAt: now,
+      lockExpiresAt: null,
+    };
+    this.runs.set(record.id, record);
+    return record;
+  }
+
+  async findById(runId: string): Promise<AgentRunRecord | null> {
+    return this.runs.get(runId) ?? null;
+  }
+
+  async listByStatus(filter: AgentRunFilter): Promise<AgentRunRecord[]> {
+    const { status, limit = 25 } = filter;
+    const now = Date.now();
+    const results: AgentRunRecord[] = [];
+    for (const run of this.runs.values()) {
+      if (results.length >= limit) {
+        break;
+      }
+      if (run.status !== status) {
+        continue;
+      }
+      if (run.lockExpiresAt && new Date(run.lockExpiresAt).getTime() > now && status === "pending") {
+        continue;
+      }
+      results.push(run);
+    }
+    return results.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async claim(runId: string, lockDurationSeconds: number): Promise<AgentRunRecord | null> {
+    const run = this.runs.get(runId);
+    if (!run) {
+      return null;
+    }
+    const now = Date.now();
+    if (
+      run.lockExpiresAt &&
+      new Date(run.lockExpiresAt).getTime() > now &&
+      run.status === "processing"
+    ) {
+      return null;
+    }
+    const updated: AgentRunRecord = {
+      ...run,
+      status: "processing",
+      lockExpiresAt: new Date(now + lockDurationSeconds * 1000).toISOString(),
+      updatedAt: ISO(),
+    };
+    this.runs.set(runId, updated);
+    return updated;
+  }
+
+  async applyResult(runId: string, patch: AgentRunResultPatch): Promise<AgentRunRecord | null> {
+    const run = this.runs.get(runId);
+    if (!run) {
+      return null;
+    }
+    const updated: AgentRunRecord = {
+      ...run,
+      status: patch.status,
+      lockExpiresAt: null,
+      updatedAt: ISO(),
+    };
+    this.runs.set(runId, updated);
+    return updated;
+  }
+}
+
 class InMemoryReplyStore implements ReplyStore {
   private replies = new Map<string, ReplyRecord>();
 
@@ -164,12 +249,14 @@ class InMemoryTraceStore implements TraceStore {
 
 export class InMemoryStorage implements StorageAdapter {
   readonly tasks: TaskStore;
+  readonly agentRuns: AgentRunStore;
   readonly replies: ReplyStore;
   readonly oauth: OAuthStore;
   readonly trace: TraceStore;
 
   constructor() {
     this.tasks = new InMemoryTaskStore();
+    this.agentRuns = new InMemoryAgentRunStore();
     this.replies = new InMemoryReplyStore();
     this.oauth = new InMemoryOAuthStore();
     this.trace = new InMemoryTraceStore();

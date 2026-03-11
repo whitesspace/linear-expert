@@ -38,6 +38,7 @@ async function run() {
 
   const originalFetch = globalThis.fetch;
   const calls: FetchCall[] = [];
+  let nextGraphqlError: string | null = null;
 
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -51,6 +52,11 @@ async function run() {
     }
 
     if (url.includes("api.linear.app/graphql")) {
+      if (nextGraphqlError) {
+        const message = nextGraphqlError;
+        nextGraphqlError = null;
+        throw new Error(message);
+      }
       const body = JSON.parse(String(init?.body ?? "{}"));
       calls.push({ kind: "graphql", body, url });
       return new Response(JSON.stringify({
@@ -142,6 +148,26 @@ async function run() {
     const graphqlCall = calls.find((call) => call.kind === "graphql");
     assert.ok(graphqlCall);
     assert.match(String(graphqlCall?.body.query ?? ""), /agentSessionCreateOnComment/);
+
+    nextGraphqlError = "Comment already has an agent session";
+    const duplicateRes = await worker.fetch(
+      new Request("https://example.com/webhooks/linear", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "linear-signature": commentSignature,
+          "linear-event": "Comment",
+        },
+        body: commentBody,
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+
+    assert.equal(duplicateRes.status, 200);
+    const duplicateJson = await duplicateRes.json() as { status?: string; reason?: string };
+    assert.equal(duplicateJson.status, "accepted");
+    assert.equal(duplicateJson.reason, "already_has_session");
   } finally {
     globalThis.fetch = originalFetch;
   }

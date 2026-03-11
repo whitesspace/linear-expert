@@ -30,6 +30,19 @@ CREATE TABLE IF NOT EXISTS replies (
   error TEXT
 );
 
+CREATE TABLE IF NOT EXISTS agent_runs (
+  id TEXT PRIMARY KEY,
+  agent_session_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  trace_id TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  lock_expires_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS oauth_tokens (
   workspace_id TEXT PRIMARY KEY,
   access_token TEXT NOT NULL,
