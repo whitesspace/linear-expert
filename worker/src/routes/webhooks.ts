@@ -29,12 +29,21 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
     return json({ error: "invalid JSON" }, { status: 400 });
   }
 
-  // WS-37: If this is an AgentSessionEvent.created webhook, route into invocation pipeline.
-  // Webhook must ACK quickly; invocation route will handle the rest.
-  // We keep this branch before task-queue parsing to avoid losing agent session context.
-  const t = (parsed as any)?.type;
-  if (t === "AgentSessionEvent" || String(t || "").includes("AgentSession")) {
-    // Best-effort map fields from Linear webhook payload into invoke schema.
+
+  const linearEvent = request.headers.get("linear-event") || "";
+  const payloadKeys = parsed && typeof parsed === "object" ? Object.keys(parsed as any).slice(0, 30) : [];
+  const dataKeys = (parsed as any)?.data && typeof (parsed as any).data === "object" ? Object.keys((parsed as any).data).slice(0, 30) : [];
+
+  // Always accept all Linear webhook event types (compat), but only execute behavior for supported types.
+  console.info("linear_webhook", {
+    linearEvent,
+    payloadKeys,
+    dataKeys,
+  });
+
+  // WS-37: If this is an AgentSessionEvent-like webhook, route into invocation pipeline.
+  const eventType = (parsed as any)?.type;
+  if (eventType === "AgentSessionEvent" || String(eventType || "").includes("AgentSession") || linearEvent.includes("AgentSession")) {
     const data = (parsed as any)?.data ?? {};
     const invokePayload = {
       type: `AgentSessionEvent.${(parsed as any)?.action ?? "created"}`,
@@ -46,7 +55,6 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
       guidance: data?.guidance ?? (parsed as any)?.guidance,
     };
 
-    // Call invocation handler internally (same Worker) to perform thought write etc.
     const url = new URL(request.url);
     const invokeUrl = `${url.origin}/internal/invoke/agent-session`;
     const resp = await fetch(invokeUrl, {
@@ -58,13 +66,13 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
       body: JSON.stringify(invokePayload),
     });
 
-    // Always ACK webhook quickly.
-    return json({ status: "accepted", invokeStatus: resp.status }, { status: 200 });
+    return json({ status: "accepted", kind: "agentSession", invokeStatus: resp.status }, { status: 200 });
   }
 
+  // For all other events, try the existing task-queue parser; if unsupported, ignore quietly.
   const newTask = parseLinearWebhook(parsed, rawBody);
   if (!newTask) {
-    return json({ status: "ignored" }, { status: 200 });
+    return json({ status: "ignored", kind: linearEvent || "unknown" }, { status: 200 });
   }
 
   const duplicated = await storage.tasks.findByWebhookId(newTask.webhookId);
