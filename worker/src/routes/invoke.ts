@@ -5,6 +5,7 @@ import { assertInternalSecret } from "../auth/internal";
 import type { StorageAdapter } from "../storage/types";
 import { createAgentActivity } from "../linear/agent";
 import { callOpenClaw } from "../linear/openclaw";
+import { OpenClawIntentSchema } from "./invoke-intent";
 
 /**
  * WS-37 (stub): Invocation layer reserved routes.
@@ -253,15 +254,70 @@ export async function handleInvokeRequest(
           },
         });
       } else {
-        await createAgentActivity(env, payload.data.workspaceId, {
-          agentSessionId: payload.data.agentSessionId,
-          type: "action",
-          content: {
-            text: "已收到 OpenClaw 结构化意图（v0 暂未执行到 execution layer）。",
-            traceId,
-            intent: oc.intent,
-          },
-        });
+        const parsedIntent = OpenClawIntentSchema.safeParse(oc.intent);
+        if (!parsedIntent.success) {
+          await createAgentActivity(env, payload.data.workspaceId, {
+            agentSessionId: payload.data.agentSessionId,
+            type: "error",
+            content: {
+              text: "OpenClaw intent schema 无法解析（v0 期望 {actions:[...] }）",
+              traceId,
+              details: parsedIntent.error.flatten(),
+              raw: oc.intent,
+            },
+          });
+        } else {
+          // v0: execute intent actions (comment only for now).
+          for (const a of parsedIntent.data.actions) {
+            if (a.kind === "comment") {
+              await createAgentActivity(env, payload.data.workspaceId, {
+                agentSessionId: payload.data.agentSessionId,
+                type: "action",
+                content: {
+                  text: `执行: comment (${a.issueId || a.issueIdentifier || ""})`,
+                  traceId,
+                },
+              });
+              // reuse execution-layer comment route
+              const execUrl = new URL(request.url);
+              const r = await fetch(`${execUrl.origin}/internal/linear/comment`, {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${env.OPENCLAW_INTERNAL_SECRET}`,
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify({
+                  workspaceId: payload.data.workspaceId,
+                  issueId: a.issueId,
+                  issueIdentifier: a.issueIdentifier,
+                  body: a.body || "",
+                }),
+              });
+              if (!r.ok) {
+                const t = await r.text();
+                await createAgentActivity(env, payload.data.workspaceId, {
+                  agentSessionId: payload.data.agentSessionId,
+                  type: "error",
+                  content: {
+                    text: `comment 执行失败: ${r.status}`,
+                    traceId,
+                    details: t.slice(0, 500),
+                  },
+                });
+                break;
+              }
+            }
+          }
+
+          await createAgentActivity(env, payload.data.workspaceId, {
+            agentSessionId: payload.data.agentSessionId,
+            type: "response",
+            content: {
+              text: "已执行 OpenClaw intent（v0：comment 动作）并完成回写。",
+              traceId,
+            },
+          });
+        }
       }
     }
 
