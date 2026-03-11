@@ -556,7 +556,7 @@ export async function handleInternalRequest(
       return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
     }
     const result = await listProjects(env, payload.data.workspaceId, payload.data.teamId);
-    return json({ ok: true, projects: result.projects.map((p: any) => ({ id: p.id, name: p.name })) });
+    return json({ ok: true, projects: result.projects.map((p) => ({ id: p.id, name: p.name })) });
   }
 
   if (url.pathname === "/internal/linear/projects/list" && request.method === "POST") {
