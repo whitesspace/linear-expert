@@ -63,7 +63,17 @@ export async function getIssueLabel(env: Env, workspaceId: string, id: string) {
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
-    const data: any = await sdkRequest<any>(
+    type GetIssueLabelResponse = {
+      issueLabel?: {
+        id: string;
+        name: string;
+        color?: string | null;
+        description?: string | null;
+        isGroup?: boolean | null;
+      } | null;
+    };
+
+    const data = await sdkRequest<GetIssueLabelResponse>(
       client,
       `query($id: String!) {
         issueLabel(id: $id) {
