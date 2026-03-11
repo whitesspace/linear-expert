@@ -39,3 +39,12 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
   actor_mode TEXT NOT NULL DEFAULT 'app',
   raw_json TEXT
 );
+
+-- WS-37: trace correlation for invocation pipeline
+CREATE TABLE IF NOT EXISTS invocation_traces (
+  trace_id TEXT PRIMARY KEY,
+  agent_session_id TEXT,
+  workspace_id TEXT,
+  event_type TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);

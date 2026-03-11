@@ -7,7 +7,7 @@ import type {
   TaskRecord,
   TaskResultPatch,
 } from "../domain/task";
-import type { OAuthStore, ReplyStore, StorageAdapter, TaskStore } from "./types";
+import type { OAuthStore, ReplyStore, StorageAdapter, TaskStore, TraceStore } from "./types";
 
 const ISO = () => new Date().toISOString();
 
@@ -217,14 +217,74 @@ class D1OAuthStore implements OAuthStore {
   }
 }
 
+class D1TraceStore implements TraceStore {
+  constructor(private db: D1Database) {}
+
+  async set(
+    traceId: string,
+    record: { agentSessionId?: string; workspaceId?: string; eventType: string; createdAt: string },
+  ): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO invocation_traces (
+          trace_id,
+          agent_session_id,
+          workspace_id,
+          event_type,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(trace_id) DO UPDATE SET
+          agent_session_id = excluded.agent_session_id,
+          workspace_id = excluded.workspace_id,
+          event_type = excluded.event_type,
+          created_at = excluded.created_at`,
+      )
+      .bind(traceId, record.agentSessionId ?? null, record.workspaceId ?? null, record.eventType, record.createdAt)
+      .run();
+  }
+
+  async get(traceId: string): Promise<
+    | {
+        traceId: string;
+        agentSessionId?: string;
+        workspaceId?: string;
+        eventType: string;
+        createdAt: string;
+      }
+    | null
+  > {
+    const row = await this.db
+      .prepare(
+        `SELECT trace_id, agent_session_id, workspace_id, event_type, created_at
+         FROM invocation_traces
+         WHERE trace_id = ?
+         LIMIT 1`,
+      )
+      .bind(traceId)
+      .first();
+
+    if (!row) return null;
+
+    return {
+      traceId: row.trace_id as string,
+      agentSessionId: (row.agent_session_id as string | null) ?? undefined,
+      workspaceId: (row.workspace_id as string | null) ?? undefined,
+      eventType: row.event_type as string,
+      createdAt: row.created_at as string,
+    };
+  }
+}
+
 export class D1Storage implements StorageAdapter {
   readonly tasks: TaskStore;
   readonly replies: ReplyStore;
   readonly oauth: OAuthStore;
+  readonly trace: TraceStore;
 
   constructor(db: D1Database) {
     this.tasks = new D1TaskStore(db);
     this.replies = new D1ReplyStore(db);
     this.oauth = new D1OAuthStore(db);
+    this.trace = new D1TraceStore(db);
   }
 }

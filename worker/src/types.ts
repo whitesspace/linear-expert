@@ -31,5 +31,9 @@ export interface Env {
   LINEAR_CLIENT_SECRET?: string;
   LINEAR_REDIRECT_URI?: string;
   OPENCLAW_INTERNAL_SECRET?: string;
+  /** Optional OpenClaw HTTP webhook receiver URL (defaults to local gateway). */
+  OPENCLAW_WEBHOOK_URL?: string;
+  /** Dev-only secret for /internal/invoke replay endpoints. Prefer setting this explicitly in local/dev. */
+  DEV_REPLAY_SECRET?: string;
   LINEAR_APP_ACTOR_MODE?: string;
 }

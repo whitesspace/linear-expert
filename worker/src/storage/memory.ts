@@ -7,7 +7,7 @@ import type {
   TaskRecord,
   TaskResultPatch,
 } from "../domain/task";
-import type { OAuthStore, ReplyStore, StorageAdapter, TaskStore } from "./types";
+import type { OAuthStore, ReplyStore, StorageAdapter, TaskStore, TraceStore } from "./types";
 
 const ISO = () => new Date().toISOString();
 
@@ -129,14 +129,49 @@ class InMemoryOAuthStore implements OAuthStore {
   }
 }
 
+class InMemoryTraceStore implements TraceStore {
+  private traces = new Map<
+    string,
+    {
+      traceId: string;
+      agentSessionId?: string;
+      workspaceId?: string;
+      eventType: string;
+      createdAt: string;
+    }
+  >();
+
+  async set(
+    traceId: string,
+    record: { agentSessionId?: string; workspaceId?: string; eventType: string; createdAt: string },
+  ): Promise<void> {
+    this.traces.set(traceId, { traceId, ...record });
+  }
+
+  async get(traceId: string): Promise<
+    | {
+        traceId: string;
+        agentSessionId?: string;
+        workspaceId?: string;
+        eventType: string;
+        createdAt: string;
+      }
+    | null
+  > {
+    return this.traces.get(traceId) ?? null;
+  }
+}
+
 export class InMemoryStorage implements StorageAdapter {
   readonly tasks: TaskStore;
   readonly replies: ReplyStore;
   readonly oauth: OAuthStore;
+  readonly trace: TraceStore;
 
   constructor() {
     this.tasks = new InMemoryTaskStore();
     this.replies = new InMemoryReplyStore();
     this.oauth = new InMemoryOAuthStore();
+    this.trace = new InMemoryTraceStore();
   }
 }

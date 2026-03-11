@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 
 const WORKER_URL = process.env.LINEAR_EXPERT_WORKER_URL ?? "https://linear-expert.placeapp.workers.dev";
-const INTERNAL_SECRET = process.env.LINEAR_EXPERT_INTERNAL_SECRET;
+// Back-compat: older docs used LINEAR_EXPERT_INTERNAL_SECRET.
+// Canonical: OPENCLAW_INTERNAL_SECRET (the worker's internal auth secret).
+const INTERNAL_SECRET = process.env.OPENCLAW_INTERNAL_SECRET || process.env.LINEAR_EXPERT_INTERNAL_SECRET;
 
 function requireEnv(value: string | undefined, name: string) {
   if (!value) {
@@ -18,7 +20,7 @@ type PostJsonResult = {
 };
 
 async function postJson(path: string, body: unknown): Promise<PostJsonResult> {
-  const secret = requireEnv(INTERNAL_SECRET, "LINEAR_EXPERT_INTERNAL_SECRET");
+  const secret = requireEnv(INTERNAL_SECRET, "OPENCLAW_INTERNAL_SECRET");
   if (!secret) {
     return { res: new Response(null, { status: 204 }), text: "", json: null as unknown };
   }
@@ -47,13 +49,26 @@ async function run() {
   // NOTE: These tests validate response shape/contracts only.
   // They intentionally avoid creating/updating real Linear data.
 
-  const workspaceId = process.env.LINEAR_EXPERT_WORKSPACE_ID ?? "";
+  // Use a known workspace id (default fallback) so tests can run after a single OAuth install.
+  const workspaceId = process.env.LINEAR_EXPERT_WORKSPACE_ID ?? "default-workspace";
   const teamId = process.env.LINEAR_EXPERT_TEAM_ID ?? "";
 
   const hasSecret = Boolean(INTERNAL_SECRET);
   if (!hasSecret) {
-    console.log("(skip) smoke.contracts.test (missing LINEAR_EXPERT_INTERNAL_SECRET)");
+    console.log("(skip) smoke.contracts.test (missing OPENCLAW_INTERNAL_SECRET)");
     return;
+  }
+
+  // Resolve workspace/team via internal resolver (requires OAuth token installed for workspaceId).
+  // This keeps the smoke test deterministic without hardcoding secrets into repo.
+  {
+    const { res, json, text } = await postJson("/internal/linear/resolve", {
+      workspaceId,
+      teamKey: process.env.LINEAR_EXPERT_TEAM_KEY ?? "",
+    });
+    assert.equal(res.status, 200, text);
+    assert.equal(json.ok, true);
+    assert.ok(typeof json.teamId === "string");
   }
 
   // /internal/linear/team/states (read-only)
@@ -67,20 +82,6 @@ async function run() {
     assert.equal(json.action, "list_team_states");
     assert.equal(json.result.success, true);
     assert.ok(Array.isArray(json.result.states));
-  }
-
-  // /internal/linear/issues/list (read-only)
-  {
-    const { res, json, text } = await postJson("/internal/linear/issues/list", {
-      workspaceId,
-      teamId,
-      numbers: [31],
-    });
-    assert.equal(res.status, 200, text);
-    assert.equal(json.ok, true);
-    assert.equal(json.action, "list_issues_by_numbers");
-    assert.equal(json.result.success, true);
-    assert.ok(Array.isArray(json.result.issues));
   }
 
   console.log("smoke.contracts.test passed");

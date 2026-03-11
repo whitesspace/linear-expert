@@ -68,7 +68,7 @@ async function getValidAccessToken(env: Env, workspaceId: string): Promise<strin
     throw new Error(`OAuth token for workspace ${workspaceId} cannot be refreshed`);
   }
 
-  const refreshed = await refreshAccessToken(token.refreshToken, env) as any;
+  const refreshed = await refreshAccessToken(token.refreshToken, env);
   const next = {
     workspaceId,
     accessToken: refreshed.access_token,
@@ -88,9 +88,9 @@ export async function withWorkspaceAccessToken<T>(env: Env, workspaceId: string,
   return fn(accessToken);
 }
 
-async function withSdkClient<T>(accessToken: string, fn: (client: any) => Promise<T>): Promise<T> {
+async function withSdkClient<T>(accessToken: string, fn: (client: LinearClientType) => Promise<T>): Promise<T> {
   const mod = await import("@linear/sdk");
-  const Client = mod.LinearClient as any;
+  const Client: typeof LinearClientType = mod.LinearClient;
   const client = new Client({ accessToken });
   return fn(client);
 }
@@ -386,10 +386,27 @@ export async function addAttachment(env: Env, workspaceId: string, input: AddAtt
       attachment?: { id: string; title: string; url: string } | null;
     };
 
-    const payload = await withSdkClient(accessToken, (client) => (client as any).createAttachment({
-      issueId: input.issueId,
-      title: input.title,
-      url: input.url,
+    const { sdkRequest } = await import("./sdk");
+
+    const payload = (await withSdkClient(accessToken, async (client) => {
+      const data = await sdkRequest<{ attachmentCreate: SdkCreateAttachmentPayload }>(
+        client,
+        `mutation($input: AttachmentCreateInput!) {
+          attachmentCreate(input: $input) {
+            success
+            attachment { id title url }
+          }
+        }`,
+        {
+          input: {
+            issueId: input.issueId,
+            title: input.title,
+            url: input.url,
+          },
+        },
+      );
+
+      return data.attachmentCreate;
     })) as SdkCreateAttachmentPayload;
 
     return {
@@ -417,11 +434,13 @@ export async function createIssueRelation(env: Env, workspaceId: string, input: 
   return withWorkspaceAccessToken<IssueRelationResult>(env, workspaceId, async (accessToken) => {
     type SdkCreateIssueRelationPayload = {
       success: boolean;
+      // GraphQL returns `issueRelation`, but some older codepaths used `relation`.
+      issueRelation?: { id: string; type: string } | null;
       relation?: { id: string; type: string } | null;
     };
 
     const { sdkRequest } = await import("./sdk");
-    const payload = await withSdkClient(accessToken, async (client) => {
+    const payload = (await withSdkClient(accessToken, async (client) => {
       // Avoid relying on SDK method presence; call GraphQL directly.
       const data = await sdkRequest<any>(
         client,
@@ -445,7 +464,7 @@ export async function createIssueRelation(env: Env, workspaceId: string, input: 
         },
       );
       return data.issueRelationCreate;
-    }) as any;
+    })) as SdkCreateIssueRelationPayload;
 
     return {
       success: Boolean(payload?.success),

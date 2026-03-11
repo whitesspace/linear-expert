@@ -29,6 +29,39 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
     return json({ error: "invalid JSON" }, { status: 400 });
   }
 
+  // WS-37: If this is an AgentSessionEvent.created webhook, route into invocation pipeline.
+  // Webhook must ACK quickly; invocation route will handle the rest.
+  // We keep this branch before task-queue parsing to avoid losing agent session context.
+  const t = (parsed as any)?.type;
+  if (t === "AgentSessionEvent" || String(t || "").includes("AgentSession")) {
+    // Best-effort map fields from Linear webhook payload into invoke schema.
+    const data = (parsed as any)?.data ?? {};
+    const invokePayload = {
+      type: `AgentSessionEvent.${(parsed as any)?.action ?? "created"}`,
+      createdAt: (parsed as any)?.createdAt ?? data?.createdAt,
+      agentSessionId: data?.agentSessionId ?? data?.id ?? (parsed as any)?.agentSessionId,
+      workspaceId: (parsed as any)?.organizationId ?? data?.organizationId ?? data?.workspaceId,
+      promptContext: data?.promptContext ?? (parsed as any)?.promptContext,
+      issue: data?.issue ?? (parsed as any)?.issue,
+      guidance: data?.guidance ?? (parsed as any)?.guidance,
+    };
+
+    // Call invocation handler internally (same Worker) to perform thought write etc.
+    const url = new URL(request.url);
+    const invokeUrl = `${url.origin}/internal/invoke/agent-session`;
+    const resp = await fetch(invokeUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${env.OPENCLAW_INTERNAL_SECRET}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(invokePayload),
+    });
+
+    // Always ACK webhook quickly.
+    return json({ status: "accepted", invokeStatus: resp.status }, { status: 200 });
+  }
+
   const newTask = parseLinearWebhook(parsed, rawBody);
   if (!newTask) {
     return json({ status: "ignored" }, { status: 200 });
