@@ -20,6 +20,21 @@ export type TriageIssueSummary = {
   createdAt?: string;
 };
 
+type TriageIssuesQueryResponse = {
+  issues?: {
+    nodes?: Array<{
+      id: string;
+      identifier: string;
+      title: string;
+      url?: string | null;
+      createdAt?: string;
+      state: { id: string; name: string };
+      assignee?: { id: string; name: string } | null;
+      project?: { id: string; name: string } | null;
+    }>;
+  };
+};
+
 export async function triageList(env: Env, workspaceId: string, teamId: string, filters: TriageListFilters) {
   const limit = Math.min(Math.max(filters.limit ?? 25, 1), 100);
   const stateName = filters.stateName ?? "Triage";
@@ -28,7 +43,7 @@ export async function triageList(env: Env, workspaceId: string, teamId: string, 
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
-    const data: any = await sdkRequest<any>(
+    const data = await sdkRequest<TriageIssuesQueryResponse>(
       client,
       `query($teamId: ID!, $first: Int!, $stateName: String!) {
         issues(
@@ -54,13 +69,13 @@ export async function triageList(env: Env, workspaceId: string, teamId: string, 
       { teamId, first: limit, stateName },
     );
 
-    let nodes: any[] = data?.issues?.nodes ?? [];
+    let nodes = data.issues?.nodes ?? [];
 
     // Optional exclusions by state name (best-effort; Linear setups vary)
     if (filters.excludeDone) nodes = nodes.filter((i) => i?.state?.name !== "Done");
     if (filters.excludeCancelled) nodes = nodes.filter((i) => i?.state?.name !== "Canceled" && i?.state?.name !== "Cancelled");
 
-    const issues: TriageIssueSummary[] = nodes.map((i: any) => ({
+    const issues: TriageIssueSummary[] = nodes.map((i) => ({
       id: i.id,
       identifier: i.identifier,
       title: i.title,
