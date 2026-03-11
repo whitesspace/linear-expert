@@ -3,12 +3,13 @@ import type { Env } from "../env";
 import { json } from "../lib/http";
 import { assertInternalSecret } from "../auth/internal";
 import type { StorageAdapter } from "../storage/types";
+import { createAgentActivity } from "../linear/agent";
 
 /**
  * WS-37 (stub): Invocation layer reserved routes.
  *
- * This module intentionally does NOT implement real Linear AgentSession/AgentActivity writes yet.
- * It only provides stable integration points and strict boundaries:
+ * This module implements the invocation boundary and v0 end-to-end webhook handling.
+ * It provides stable integration points and strict boundaries:
  * - invocation layer: receives agent session events/signals, orchestrates session lifecycle
  * - execution layer: existing /internal/* routes that only perform Linear-native actions
  */
@@ -194,8 +195,6 @@ export async function handleInvokeRequest(
 
     const traceId = makeTraceId();
 
-    // WS-37 increment: produce a *real* first-thought prompt content derived from promptContext/issue.
-    // We still avoid execution actions here (strict boundary).
     const firstThoughtPrompt = buildFirstThoughtPrompt({
       eventType: payload.data.type,
       agentSessionId: payload.data.agentSessionId,
@@ -214,13 +213,25 @@ export async function handleInvokeRequest(
       createdAt: new Date().toISOString(),
     });
 
+    // v0: write the first AgentActivity(thought) back to Linear within the 60s budget.
+    if (payload.data.workspaceId && payload.data.agentSessionId) {
+      await createAgentActivity(env, payload.data.workspaceId, {
+        agentSessionId: payload.data.agentSessionId,
+        type: "thought",
+        content: {
+          text: firstThoughtPrompt,
+          traceId,
+        },
+      });
+    }
+
     const body = InvokeResponseSchema.parse({
       ok: true,
       traceId,
       reserved: {
-        note: "WS-37: invocation boundary reserved; first-thought prompt derived (no execution)",
         receivedType: payload.data.type,
         firstThoughtPrompt,
+        wroteThought: !!(payload.data.workspaceId && payload.data.agentSessionId),
         traceStore: {
           wrote: true,
           agentSessionId: payload.data.agentSessionId,
@@ -264,11 +275,11 @@ export async function handleInvokeRequest(
       createdAt: new Date().toISOString(),
     });
 
+    // Replay does not write to Linear; it only verifies prompt derivation + trace correlation.
     const body = InvokeResponseSchema.parse({
       ok: true,
       traceId,
       reserved: {
-        note: "WS-37: dev replay accepted; routed through invocation pipeline (no execution)",
         receivedType: payload.data.type,
         firstThoughtPrompt,
         traceStore: {
