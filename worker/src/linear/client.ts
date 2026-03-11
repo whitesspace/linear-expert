@@ -88,9 +88,9 @@ export async function withWorkspaceAccessToken<T>(env: Env, workspaceId: string,
   return fn(accessToken);
 }
 
-async function withSdkClient<T>(accessToken: string, fn: (client: any) => Promise<T>): Promise<T> {
+async function withSdkClient<T>(accessToken: string, fn: (client: LinearClientType) => Promise<T>): Promise<T> {
   const mod = await import("@linear/sdk");
-  const Client = mod.LinearClient as any;
+  const Client: typeof LinearClientType = mod.LinearClient;
   const client = new Client({ accessToken });
   return fn(client);
 }
