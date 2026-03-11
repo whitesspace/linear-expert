@@ -267,56 +267,72 @@ export async function handleInvokeRequest(
             },
           });
         } else {
-          // v0: execute intent actions (comment only for now).
+          // v0: execute intent actions via execution-layer internal routes.
+          const execUrl = new URL(request.url);
+          let failed = false;
+
           for (const a of parsedIntent.data.actions) {
+            if (a.kind === "noop") continue;
+
+            await createAgentActivity(env, payload.data.workspaceId, {
+              agentSessionId: payload.data.agentSessionId,
+              type: "action",
+              content: {
+                text: `执行: ${a.kind} (${a.issueId || a.issueIdentifier || ""})`,
+                traceId,
+              },
+            });
+
+            let path = "";
+            let body: Record<string, unknown> = { workspaceId: payload.data.workspaceId };
+
             if (a.kind === "comment") {
+              path = "/internal/linear/comment";
+              body = { ...body, issueId: a.issueId, issueIdentifier: a.issueIdentifier, body: a.body || "" };
+            } else if (a.kind === "assign") {
+              path = "/internal/linear/issues/assign";
+              body = { ...body, issueId: a.issueId, assigneeId: a.assigneeId };
+            } else if (a.kind === "transition") {
+              path = "/internal/linear/issues/state";
+              // require stateId in v0 (no name resolve here)
+              body = { ...body, issueId: a.issueId, stateId: a.stateId };
+            }
+
+            const r = await fetch(`${execUrl.origin}${path}`, {
+              method: "POST",
+              headers: {
+                authorization: `Bearer ${env.OPENCLAW_INTERNAL_SECRET}`,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify(body),
+            });
+
+            if (!r.ok) {
+              const t = await r.text();
               await createAgentActivity(env, payload.data.workspaceId, {
                 agentSessionId: payload.data.agentSessionId,
-                type: "action",
+                type: "error",
                 content: {
-                  text: `执行: comment (${a.issueId || a.issueIdentifier || ""})`,
+                  text: `${a.kind} 执行失败: ${r.status}`,
                   traceId,
+                  details: t.slice(0, 800),
                 },
               });
-              // reuse execution-layer comment route
-              const execUrl = new URL(request.url);
-              const r = await fetch(`${execUrl.origin}/internal/linear/comment`, {
-                method: "POST",
-                headers: {
-                  authorization: `Bearer ${env.OPENCLAW_INTERNAL_SECRET}`,
-                  "content-type": "application/json",
-                },
-                body: JSON.stringify({
-                  workspaceId: payload.data.workspaceId,
-                  issueId: a.issueId,
-                  issueIdentifier: a.issueIdentifier,
-                  body: a.body || "",
-                }),
-              });
-              if (!r.ok) {
-                const t = await r.text();
-                await createAgentActivity(env, payload.data.workspaceId, {
-                  agentSessionId: payload.data.agentSessionId,
-                  type: "error",
-                  content: {
-                    text: `comment 执行失败: ${r.status}`,
-                    traceId,
-                    details: t.slice(0, 500),
-                  },
-                });
-                break;
-              }
+              failed = true;
+              break;
             }
           }
 
-          await createAgentActivity(env, payload.data.workspaceId, {
-            agentSessionId: payload.data.agentSessionId,
-            type: "response",
-            content: {
-              text: "已执行 OpenClaw intent（v0：comment 动作）并完成回写。",
-              traceId,
-            },
-          });
+          if (!failed) {
+            await createAgentActivity(env, payload.data.workspaceId, {
+              agentSessionId: payload.data.agentSessionId,
+              type: "response",
+              content: {
+                text: "已执行 OpenClaw intent 并完成回写（v0）。",
+                traceId,
+              },
+            });
+          }
         }
       }
     }

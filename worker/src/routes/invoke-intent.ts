@@ -5,6 +5,7 @@ export const IntentActionSchema = z.object({
   issueId: z.string().optional(),
   issueIdentifier: z.string().optional(),
   body: z.string().optional(),
+  stateId: z.string().optional(),
   stateName: z.string().optional(),
   assigneeId: z.string().optional(),
   reason: z.string().optional(),
