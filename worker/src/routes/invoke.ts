@@ -142,7 +142,7 @@ function getReplaySecret(env: Env): string | null {
   // Dev-only safety: prefer an explicit secret so replay is never accidentally exposed.
   // Fallback to OPENCLAW_INTERNAL_SECRET so local/dev can use the same auth mechanism.
   // If both are missing, replay is disabled.
-  const v = (env as any).DEV_REPLAY_SECRET || env.OPENCLAW_INTERNAL_SECRET;
+  const v = env.DEV_REPLAY_SECRET || env.OPENCLAW_INTERNAL_SECRET;
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
