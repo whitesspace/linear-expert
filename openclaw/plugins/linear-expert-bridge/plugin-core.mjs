@@ -1,4 +1,4 @@
-import { parseCliJsonOutput, runOpenClaw } from "../../runner/runner-core.mjs";
+import { parseCliJsonOutput, runOpenClaw } from "./runner-core.mjs";
 
 export const PLUGIN_ID = "linear-expert-bridge";
 

@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import { mkdtemp, cp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
 import {
   createBridgeState,
   createLinearExpertClient,
@@ -23,6 +27,16 @@ function buildConfig() {
 }
 
 async function run() {
+  {
+    const installRoot = await mkdtemp(path.join(tmpdir(), "linear-expert-bridge-plugin-"));
+    const sourceDir = "/Users/clu/Documents/Github/placify/linear-expert.worktrees/linear-expert-bridge/openclaw/plugins/linear-expert-bridge";
+    const targetDir = path.join(installRoot, "linear-expert-bridge");
+    await cp(sourceDir, targetDir, { recursive: true });
+    const installedModule = await import(pathToFileURL(path.join(targetDir, "index.mjs")).href);
+    assert.equal(installedModule.id, "linear-expert-bridge");
+    assert.equal(typeof installedModule.default, "function");
+  }
+
   {
     const config = buildConfig();
     assert.equal(config.linearExpertBaseUrl, "https://linear-expert.example.com");
