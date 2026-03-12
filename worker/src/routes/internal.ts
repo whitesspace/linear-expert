@@ -37,6 +37,7 @@ import type { StorageAdapter } from "../storage/types";
 import { OpenClawIntentSchema } from "./invoke-intent";
 import { clearInflightSession } from "../linear/dedup";
 import { revokeSessionToken, verifySessionToken } from "../linear/session-token";
+import { completeSession, failSession, updateSessionActivity } from "../linear/session-lifecycle";
 
 const CommentRequestSchema = z.object({
   workspaceId: z.string().min(1),
@@ -1129,8 +1130,18 @@ async function handleSubmitAgentRunResult(
     intent: intentParsed.data,
   });
 
+  // 更新会话活动
+  updateSessionActivity(run.agentSessionId);
+
   // 清除 in-flight 标记
   clearInflightSession(run.agentSessionId);
+
+  // 完成会话
+  if (execResult.ok) {
+    completeSession(run.agentSessionId);
+  } else {
+    failSession(run.agentSessionId);
+  }
 
   const updated = await storage.agentRuns.applyResult(runId, { status: execResult.ok ? "completed" : "failed" });
 

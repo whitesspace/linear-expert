@@ -15,6 +15,7 @@ import {
   markWebhookProcessed,
   getDedupWindow,
 } from "../linear/dedup";
+import { createAgentSession as lifecycleCreateSession, updateSessionActivity, completeSession, failSession } from "../linear/session-lifecycle";
 
 /**
  * WS-37 (stub): Invocation layer reserved routes.
@@ -189,6 +190,10 @@ export async function handleInvokeRequest(
     if (hasSession && isCreatedEvent) {
       const wsId = payload.data.workspaceId!;
       const sessionId = payload.data.agentSessionId!;
+
+      // 创建会话（生命周期管理）
+      lifecycleCreateSession(sessionId, wsId);
+
       await createAgentActivity(env, wsId, {
         agentSessionId: sessionId,
         type: "thought",

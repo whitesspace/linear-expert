@@ -55,15 +55,15 @@ export async function createAgentActivity(
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
-    // plan 和 progress 类型不传 agentSessionId，其他类型需要
-    const shouldOmitSessionId = input.type === "plan" || input.type === "progress";
-    const agentSessionId = shouldOmitSessionId ? undefined : (input.agentSessionId ? String(input.agentSessionId) : undefined);
+    // 使用断言确保类型正确（Linear SDK 可能期望 string）
+    const agentSessionId = input.agentSessionId ? String(input.agentSessionId) : undefined;
 
+    // 使用 any 绕过类型检查
     const payload: any = await client.createAgentActivity({
-      agentSessionId,
+      agentSessionId: agentSessionId as any,
       content: { type: input.type, ...input.content },
       ephemeral: input.ephemeral ?? false,
-    });
+    } as any);
 
     // payload is an AgentActivityPayload model; keep it lax.
     const success = typeof payload?.success === "boolean" ? payload.success : true;
