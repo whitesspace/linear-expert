@@ -16,6 +16,10 @@ export interface CommentResult {
   comment: { id: string; body: string };
 }
 
+export interface CommentMutationStatus {
+  success: boolean;
+}
+
 export interface IssueResult {
   success: boolean;
   issue: { id: string; identifier: string; title: string; url?: string | null };
@@ -147,6 +151,100 @@ export async function postComment(env: Env, workspaceId: string, issueId: string
         comment: {
           id: payload?.comment?.id ?? "",
           body: payload?.comment?.body ?? body,
+        },
+      };
+    });
+  });
+}
+
+export async function updateComment(env: Env, workspaceId: string, id: string, body: string) {
+  return withWorkspaceAccessToken<CommentResult>(env, workspaceId, async (accessToken) => {
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<{ commentUpdate?: { success?: boolean | null; comment?: { id: string; body: string } | null } | null }>(
+        client,
+        `mutation($id: String!, $input: CommentUpdateInput!) {
+          commentUpdate(id: $id, input: $input) {
+            success
+            comment { id body }
+          }
+        }`,
+        { id, input: { body } },
+      );
+      const payload = data.commentUpdate;
+      return {
+        success: Boolean(payload?.success),
+        comment: {
+          id: payload?.comment?.id ?? id,
+          body: payload?.comment?.body ?? body,
+        },
+      };
+    });
+  });
+}
+
+export async function deleteComment(env: Env, workspaceId: string, id: string) {
+  return withWorkspaceAccessToken<CommentMutationStatus>(env, workspaceId, async (accessToken) => {
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<{ commentDelete?: { success?: boolean | null } | null }>(
+        client,
+        `mutation($id: String!) {
+          commentDelete(id: $id) { success }
+        }`,
+        { id },
+      );
+      return { success: Boolean(data.commentDelete?.success) };
+    });
+  });
+}
+
+export async function resolveComment(env: Env, workspaceId: string, id: string) {
+  return withWorkspaceAccessToken<CommentResult>(env, workspaceId, async (accessToken) => {
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<{ commentResolve?: { success?: boolean | null; comment?: { id: string; body: string } | null } | null }>(
+        client,
+        `mutation($id: String!) {
+          commentResolve(id: $id) {
+            success
+            comment { id body }
+          }
+        }`,
+        { id },
+      );
+      const payload = data.commentResolve;
+      return {
+        success: Boolean(payload?.success),
+        comment: {
+          id: payload?.comment?.id ?? id,
+          body: payload?.comment?.body ?? "",
+        },
+      };
+    });
+  });
+}
+
+export async function unresolveComment(env: Env, workspaceId: string, id: string) {
+  return withWorkspaceAccessToken<CommentResult>(env, workspaceId, async (accessToken) => {
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<{ commentUnresolve?: { success?: boolean | null; comment?: { id: string; body: string } | null } | null }>(
+        client,
+        `mutation($id: String!) {
+          commentUnresolve(id: $id) {
+            success
+            comment { id body }
+          }
+        }`,
+        { id },
+      );
+      const payload = data.commentUnresolve;
+      return {
+        success: Boolean(payload?.success),
+        comment: {
+          id: payload?.comment?.id ?? id,
+          body: payload?.comment?.body ?? "",
         },
       };
     });
@@ -446,6 +544,10 @@ export interface AttachmentResult {
   attachment: { id: string; title: string; url: string };
 }
 
+export interface AttachmentMutationStatus {
+  success: boolean;
+}
+
 export async function addAttachment(env: Env, workspaceId: string, input: AddAttachmentInput) {
   return withWorkspaceAccessToken<AttachmentResult>(env, workspaceId, async (accessToken) => {
     type SdkCreateAttachmentPayload = {
@@ -484,6 +586,22 @@ export async function addAttachment(env: Env, workspaceId: string, input: AddAtt
         url: payload?.attachment?.url ?? input.url,
       },
     };
+  });
+}
+
+export async function deleteAttachment(env: Env, workspaceId: string, id: string) {
+  return withWorkspaceAccessToken<AttachmentMutationStatus>(env, workspaceId, async (accessToken) => {
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<{ attachmentDelete?: { success?: boolean | null } | null }>(
+        client,
+        `mutation($id: String!) {
+          attachmentDelete(id: $id) { success }
+        }`,
+        { id },
+      );
+      return { success: Boolean(data.attachmentDelete?.success) };
+    });
   });
 }
 
@@ -540,5 +658,65 @@ export async function createIssueRelation(env: Env, workspaceId: string, input: 
         type: payload?.issueRelation?.type ?? payload?.relation?.type ?? input.relationType,
       },
     };
+  });
+}
+
+export async function archiveIssue(env: Env, workspaceId: string, id: string) {
+  return withWorkspaceAccessToken<{ success: boolean }>(env, workspaceId, async (accessToken) => {
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<{ issueArchive?: { success?: boolean | null } | null }>(
+        client,
+        `mutation($id: String!) {
+          issueArchive(id: $id) { success }
+        }`,
+        { id },
+      );
+      return { success: Boolean(data.issueArchive?.success) };
+    });
+  });
+}
+
+export async function deleteIssue(env: Env, workspaceId: string, id: string) {
+  return withWorkspaceAccessToken<{ success: boolean }>(env, workspaceId, async (accessToken) => {
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<{ issueDelete?: { success?: boolean | null } | null }>(
+        client,
+        `mutation($id: String!) {
+          issueDelete(id: $id) { success }
+        }`,
+        { id },
+      );
+      return { success: Boolean(data.issueDelete?.success) };
+    });
+  });
+}
+
+export async function triageMoveIssue(
+  env: Env,
+  workspaceId: string,
+  input: { issueId: string; assigneeId?: string; stateId?: string; projectId?: string },
+) {
+  const patch: Record<string, unknown> = {};
+  if (input.assigneeId !== undefined) patch.assigneeId = input.assigneeId;
+  if (input.stateId !== undefined) patch.stateId = input.stateId;
+  if (input.projectId !== undefined) patch.projectId = input.projectId;
+
+  return withWorkspaceAccessToken<IssueResult>(env, workspaceId, async (accessToken) => {
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<any>(
+        client,
+        `mutation($id: String!, $input: IssueUpdateInput!) {
+          issueUpdate(id: $id, input: $input) {
+            success
+            issue { id identifier title url }
+          }
+        }`,
+        { id: input.issueId, input: patch },
+      );
+      return data.issueUpdate as IssueResult;
+    });
   });
 }

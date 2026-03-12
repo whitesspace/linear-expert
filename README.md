@@ -312,19 +312,19 @@ set -a; source ~/.openclaw/keys/.env; set +a
 常用示例：
 ```bash
 # issue
-./scripts/lec issue create --team WS --title "hello" --description "world" --json
-./scripts/lec issue get --team WS --issue WS-123 --json
-./scripts/lec issue update --team WS --issue WS-123 --title "new" --json
-./scripts/lec comment create --team WS --issue WS-123 --body "comment" --json
-./scripts/lec attachment add --team WS --issue WS-123 --url "https://example.com" --title "link" --json
-./scripts/lec relation add --team WS --issue WS-123 --relation relates_to --target WS-456 --json
+./scripts/lec issue create --team PCF --title "hello" --description "world" --json
+./scripts/lec issue get --team PCF --issue PCF-123 --json
+./scripts/lec issue update --team PCF --issue PCF-123 --title "new" --json
+./scripts/lec comment create --team PCF --issue PCF-123 --body "comment" --json
+./scripts/lec attachment add --team PCF --issue PCF-123 --url "https://example.com" --title "link" --json
+./scripts/lec relation add --team PCF --issue PCF-123 --relation relates_to --target PCF-456 --json
 
 # project
-./scripts/lec project list --team WS --plain
-./scripts/lec project create --team WS --title "[tmp] proj" --description "desc" --json
-./scripts/lec project get --team WS --project <projectId> --json
-./scripts/lec project update --team WS --project <projectId> --description "desc2" --json
-./scripts/lec project delete --team WS --project <projectId> --json
+./scripts/lec project list --team PCF --plain
+./scripts/lec project create --team PCF --title "[tmp] proj" --description "desc" --json
+./scripts/lec project get --team PCF --project <projectId> --json
+./scripts/lec project update --team PCF --project <projectId> --description "desc2" --json
+./scripts/lec project delete --team PCF --project <projectId> --json
 ```
 
 > `lec` 默认 base URL 为生产 worker：`https://linear-expert.placeapp.workers.dev`。
@@ -393,6 +393,42 @@ npm test
 
 ## 11. Roadmap（里程碑）
 
+### Issues / Comments / Attachments / Triage（已接入）
+
+#### Worker routes（internal）
+- `POST /internal/linear/issues/create`
+- `POST /internal/linear/issues/get`
+- `POST /internal/linear/issues/update`
+- `POST /internal/linear/issues/assign`
+- `POST /internal/linear/issues/state`
+- `POST /internal/linear/issues/project`
+- `POST /internal/linear/issues/children`
+- `POST /internal/linear/issues/archive`
+- `POST /internal/linear/issues/delete`
+- `POST /internal/linear/comment`
+- `POST /internal/linear/comments/update`
+- `POST /internal/linear/comments/delete`
+- `POST /internal/linear/comments/resolve`
+- `POST /internal/linear/comments/unresolve`
+- `POST /internal/linear/issues/attachment`
+- `POST /internal/linear/attachments/delete`
+- `POST /internal/linear/triage/list`
+- `POST /internal/linear/triage/move`
+
+#### lec（thin wrapper）
+- `./scripts/lec issue archive --issue <id|PCF-123> [--team PCF] [--json]`
+- `./scripts/lec issue delete --issue <id|PCF-123> [--team PCF] [--json]`
+- `./scripts/lec comment update --id <commentId> --body "<md>" [--team PCF] [--json]`
+- `./scripts/lec comment delete --id <commentId> [--team PCF] [--json]`
+- `./scripts/lec comment resolve --id <commentId> [--team PCF] [--json]`
+- `./scripts/lec comment unresolve --id <commentId> [--team PCF] [--json]`
+- `./scripts/lec attachment delete --id <attachmentId> [--team PCF] [--json]`
+- `./scripts/lec triage move --issue <id|PCF-123> [--assignee <userId>] [--state <stateId>] [--project <projectId>] [--team PCF] [--json]`
+
+#### Smoke
+- `./scripts/lec-smoke.sh`（issue create/get/update/comment lifecycle/attachment lifecycle/relation/project CRUD/archive+delete）
+- `./scripts/lec-triage-smoke.sh`（当前做 list-only；`move` 依赖真实 workspace 状态配置，建议在真实值上人工验）
+
 ### Initiatives（已接入）
 
 #### Worker routes（internal）
@@ -403,11 +439,11 @@ npm test
 - `POST /internal/linear/initiatives/archive`
 
 #### lec（thin wrapper）
-- `./scripts/lec initiatives list [--team WS] [--limit 25] [--json]`
-- `./scripts/lec initiatives get --id <initiativeId> [--team WS] [--json]`
-- `./scripts/lec initiatives create --title "<name>" [--description "..."] [--status "..."] [--team WS] [--json]`
-- `./scripts/lec initiatives update --id <initiativeId> [--title "..."] [--description "..."] [--status "..."] [--team WS] [--json]`
-- `./scripts/lec initiatives archive --id <initiativeId> [--team WS] [--json]`
+- `./scripts/lec initiatives list [--team PCF] [--limit 25] [--json]`
+- `./scripts/lec initiatives get --id <initiativeId> [--team PCF] [--json]`
+- `./scripts/lec initiatives create --title "<name>" [--description "..."] [--status "..."] [--team PCF] [--json]`
+- `./scripts/lec initiatives update --id <initiativeId> [--title "..."] [--description "..."] [--status "..."] [--team PCF] [--json]`
+- `./scripts/lec initiatives archive --id <initiativeId> [--team PCF] [--json]`
 
 #### Smoke
 - `./scripts/lec-initiatives-smoke.sh`（create -> update -> archive）
@@ -422,11 +458,11 @@ npm test
 - `POST /internal/linear/cycles/archive`
 
 #### lec（thin wrapper）
-- `./scripts/lec cycles list [--team WS] [--limit 25] [--json]`
-- `./scripts/lec cycles get --id <cycleId> [--team WS] [--json]`
-- `./scripts/lec cycles create [--title "<name>"] --starts-at YYYY-MM-DD --ends-at YYYY-MM-DD [--team WS] [--json]`
-- `./scripts/lec cycles update --id <cycleId> [--title "<name>"] [--starts-at YYYY-MM-DD] [--ends-at YYYY-MM-DD] [--team WS] [--json]`
-- `./scripts/lec cycles archive --id <cycleId> [--team WS] [--json]`
+- `./scripts/lec cycles list [--team PCF] [--limit 25] [--json]`
+- `./scripts/lec cycles get --id <cycleId> [--team PCF] [--json]`
+- `./scripts/lec cycles create [--title "<name>"] --starts-at YYYY-MM-DD --ends-at YYYY-MM-DD [--team PCF] [--json]`
+- `./scripts/lec cycles update --id <cycleId> [--title "<name>"] [--starts-at YYYY-MM-DD] [--ends-at YYYY-MM-DD] [--team PCF] [--json]`
+- `./scripts/lec cycles archive --id <cycleId> [--team PCF] [--json]`
 
 #### Smoke
 - `./scripts/lec-cycles-smoke.sh`
@@ -442,33 +478,127 @@ npm test
 - `POST /internal/linear/labels/restore`
 
 #### lec（thin wrapper）
-- `./scripts/lec labels list [--team WS] [--limit 25] [--json]`
-- `./scripts/lec labels get --id <labelId> [--team WS] [--json]`
-- `./scripts/lec labels create --title "<name>" [--description "..."] [--color "..."] [--team WS] [--json]`
-- `./scripts/lec labels update --id <labelId> [--title "..."] [--description "..."] [--color "..."] [--team WS] [--json]`
-- `./scripts/lec labels retire --id <labelId> [--team WS] [--json]`
-- `./scripts/lec labels restore --id <labelId> [--team WS] [--json]`
+- `./scripts/lec labels list [--team PCF] [--limit 25] [--json]`
+- `./scripts/lec labels get --id <labelId> [--team PCF] [--json]`
+- `./scripts/lec labels create --title "<name>" [--description "..."] [--color "..."] [--team PCF] [--json]`
+- `./scripts/lec labels update --id <labelId> [--title "..."] [--description "..."] [--color "..."] [--team PCF] [--json]`
+- `./scripts/lec labels retire --id <labelId> [--team PCF] [--json]`
+- `./scripts/lec labels restore --id <labelId> [--team PCF] [--json]`
 
 #### Smoke
 - `./scripts/lec-labels-smoke.sh`（create -> update -> retire -> restore）
 
+### Documents（已接入）
+
+#### Worker routes（internal）
+- `POST /internal/linear/documents/list`
+- `POST /internal/linear/documents/get`
+- `POST /internal/linear/documents/create`
+- `POST /internal/linear/documents/update`
+- `POST /internal/linear/documents/delete`
+- `POST /internal/linear/documents/unarchive`
+
+#### lec（thin wrapper）
+- `./scripts/lec documents list [--team PCF] [--limit 25] [--json]`
+- `./scripts/lec documents get --id <documentId> [--team PCF] [--json]`
+- `./scripts/lec documents create --title "<name>" --body "<md>" [--project <projectId>] [--issue <issueId>] [--initiative <initiativeId>] [--team PCF] [--json]`
+- `./scripts/lec documents update --id <documentId> [--title "<name>"] [--body "<md>"] [--team PCF] [--json]`
+- `./scripts/lec documents delete --id <documentId> [--team PCF] [--json]`
+- `./scripts/lec documents unarchive --id <documentId> [--team PCF] [--json]`
+
+#### Smoke
+- `./scripts/lec-documents-smoke.sh`（create -> update -> delete -> unarchive）
+
+### Customers / Customer Needs（已接入）
+
+#### Worker routes（internal）
+- `POST /internal/linear/customers/list`
+- `POST /internal/linear/customers/get`
+- `POST /internal/linear/customers/create`
+- `POST /internal/linear/customers/update`
+- `POST /internal/linear/customers/delete`
+- `POST /internal/linear/customer-needs/list`
+- `POST /internal/linear/customer-needs/get`
+- `POST /internal/linear/customer-needs/create`
+- `POST /internal/linear/customer-needs/update`
+- `POST /internal/linear/customer-needs/delete`
+- `POST /internal/linear/customer-needs/unarchive`
+
+#### lec（thin wrapper）
+- `./scripts/lec customers list [--team PCF] [--limit 25] [--json]`
+- `./scripts/lec customers get --id <customerId> [--team PCF] [--json]`
+- `./scripts/lec customers create --title "<name>" [--domain "<domain>"] [--revenue <n>] [--size <n>] [--team PCF] [--json]`
+- `./scripts/lec customers update --id <customerId> [--title "<name>"] [--domain "<domain>"] [--revenue <n>] [--size <n>] [--team PCF] [--json]`
+- `./scripts/lec customers delete --id <customerId> [--team PCF] [--json]`
+- `./scripts/lec customer-needs list [--team PCF] [--limit 25] [--json]`
+- `./scripts/lec customer-needs get --id <needId> [--team PCF] [--json]`
+- `./scripts/lec customer-needs create --body "<md>" --customer <customerId> [--issue <issueId>] [--project <projectId>] [--team PCF] [--json]`
+- `./scripts/lec customer-needs update --id <needId> [--body "<md>"] [--customer <customerId>] [--issue <issueId>] [--project <projectId>] [--team PCF] [--json]`
+- `./scripts/lec customer-needs delete --id <needId> [--team PCF] [--json]`
+- `./scripts/lec customer-needs unarchive --id <needId> [--team PCF] [--json]`
+
+#### Smoke
+- `./scripts/lec-customers-smoke.sh`（create -> update -> delete）
+- `./scripts/lec-customer-needs-smoke.sh`（create customer -> create need -> update -> delete -> unarchive -> cleanup customer）
+
+### Project Updates（已接入）
+
+#### Worker routes（internal）
+- `POST /internal/linear/project-updates/list`
+- `POST /internal/linear/project-updates/get`
+- `POST /internal/linear/project-updates/create`
+- `POST /internal/linear/project-updates/update`
+- `POST /internal/linear/project-updates/delete`
+- `POST /internal/linear/project-updates/unarchive`
+
+#### lec（thin wrapper）
+- `./scripts/lec project-updates list [--team PCF] [--limit 25] [--json]`
+- `./scripts/lec project-updates get --id <updateId> [--team PCF] [--json]`
+- `./scripts/lec project-updates create --project <projectId> --body "<md>" [--status <health>] [--team PCF] [--json]`
+- `./scripts/lec project-updates update --id <updateId> [--body "<md>"] [--status <health>] [--team PCF] [--json]`
+- `./scripts/lec project-updates delete --id <updateId> [--team PCF] [--json]`
+- `./scripts/lec project-updates unarchive --id <updateId> [--team PCF] [--json]`
+
+#### Smoke
+- `./scripts/lec-project-updates-smoke.sh`（create project -> create update -> update -> delete -> unarchive -> cleanup project）
+
+### Workflow States（已接入）
+
+#### Worker routes（internal）
+- `POST /internal/linear/workflow-states/list`
+- `POST /internal/linear/workflow-states/get`
+- `POST /internal/linear/workflow-states/create`
+- `POST /internal/linear/workflow-states/update`
+- `POST /internal/linear/workflow-states/archive`
+
+#### lec（thin wrapper）
+- `./scripts/lec workflow-states list [--team PCF] [--limit 25] [--json]`
+- `./scripts/lec workflow-states get --id <stateId> [--team PCF] [--json]`
+- `./scripts/lec workflow-states create --title "<name>" --state <type> [--team PCF] [--json]`
+- `./scripts/lec workflow-states update --id <stateId> [--title "<name>"] [--state <type>] [--team PCF] [--json]`
+- `./scripts/lec workflow-states archive --id <stateId> [--team PCF] [--json]`
+
+#### Smoke
+- `./scripts/lec-workflow-states-smoke.sh`（create -> update -> archive）
+
 
 ### 已完成
 - OAuth app 授权 + D1 存储骨架
-- Internal execution APIs：Issues / Comments / Attachments / Relations / Projects CRUD / Initiatives CRUD+Archive / Resolve
-- `lec` CLI + `lec-smoke.sh` 端到端验收脚本
+- Internal execution APIs：Issues / Comments / Attachments / Relations / Projects / Triage / Initiatives / Cycles / Labels / Documents / Customers / Customer Needs / Project Updates / Workflow States / Resolve
+- `lec` CLI 能力面与 worker internal routes 对齐
+- 分域 smoke 脚本：`lec-smoke.sh`、`lec-initiatives-smoke.sh`、`lec-cycles-smoke.sh`、`lec-labels-smoke.sh`、`lec-triage-smoke.sh`、`lec-documents-smoke.sh`、`lec-customers-smoke.sh`、`lec-customer-needs-smoke.sh`、`lec-project-updates-smoke.sh`、`lec-workflow-states-smoke.sh`
 
 ### 进行中
 - Contracts/错误码/返回结构进一步收敛（减少调用方猜字段）
 - 稳健性：幂等 key、重试、超时与更好的错误日志
-- CI：对 `main` 强制跑 `./scripts/lec-smoke.sh` + worker typecheck/tests
+- CI：对 `main` 分层跑 core smoke / domain smoke + worker typecheck/tests
 - OpenClaw pull 侧与 webhook/task 的真实闭环跑通（生产实测）
 
 ### 后续
 - 更完整的 webhook event coverage（更多事件类型与边界情况）
 - 自动状态更新 / 自动 assign / routing
 - Multi-workspace 支持
-- 扩对象域：Initiatives / Cycles / Labels / Triage / Templates 等（按需求优先级逐个接入）
+- Templates / 其它低优先级对象域（按需求逐个接入）
 
 ---
 

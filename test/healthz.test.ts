@@ -22,15 +22,29 @@ async function run() {
 
   assert.deepEqual(
     body.executionLayer.activeDomains.map((item) => item.domain),
-    ["comments", "issues"],
+    [
+      "comments",
+      "issues",
+      "attachments",
+      "relations",
+      "projects",
+      "triage",
+      "initiatives",
+      "cycles",
+      "labels",
+      "documents",
+      "customers",
+      "customer-needs",
+      "project-updates",
+      "workflow-states",
+    ],
   );
-  assert.deepEqual(
-    body.executionLayer.plannedDomains.map((item) => item.domain),
-    ["attachments", "relations", "projects", "triage"],
-  );
+  assert.deepEqual(body.executionLayer.plannedDomains.map((item) => item.domain), []);
   assert.equal(body.executionLayer.nextSteps.length, 0);
   assert.equal(body.routes.internalLinearIssuesCreate, "POST /internal/linear/issues/create");
   assert.equal(body.routes.internalLinearCommentsCreate, "POST /internal/linear/comment");
+  assert.equal(body.routes.internalLinearDocumentsCreate, "POST /internal/linear/documents/create");
+  assert.equal(body.routes.internalLinearProjectUpdatesCreate, "POST /internal/linear/project-updates/create");
 
   console.log("healthz.test passed");
 }

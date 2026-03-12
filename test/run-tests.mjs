@@ -7,6 +7,8 @@ const tests = [
   'test/signature.test.ts',
   'test/parser.test.ts',
   'test/internal.routes.test.ts',
+  'test/linear.capabilities.routes.test.ts',
+  'test/linear.capabilities.catalog.test.ts',
   'test/internal.auth.test.ts',
   'test/healthz.test.ts',
   'test/oauth.routes.test.ts',
