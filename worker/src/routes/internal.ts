@@ -35,6 +35,7 @@ import { createIssueLabel, getIssueLabel, listIssueLabels, restoreIssueLabel, re
 import { executeOpenClawIntent } from "../linear/intent-executor";
 import type { StorageAdapter } from "../storage/types";
 import { OpenClawIntentSchema } from "./invoke-intent";
+import { clearInflightSession } from "../linear/dedup";
 import { revokeSessionToken, verifySessionToken } from "../linear/session-token";
 
 const CommentRequestSchema = z.object({
@@ -1127,6 +1128,10 @@ async function handleSubmitAgentRunResult(
     traceId: run.traceId,
     intent: intentParsed.data,
   });
+
+  // 清除 in-flight 标记
+  clearInflightSession(run.agentSessionId);
+
   const updated = await storage.agentRuns.applyResult(runId, { status: execResult.ok ? "completed" : "failed" });
 
   // 撤销会话令牌

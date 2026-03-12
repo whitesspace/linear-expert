@@ -7,6 +7,14 @@ import { createAgentActivity } from "../linear/agent";
 import { clearStop, requestStop } from "../storage/stop";
 import { buildEnrichedPrompt, type PromptContext } from "../linear/prompt-builder";
 import { createSessionToken, type SessionContext, revokeSessionToken } from "../linear/session-token";
+import {
+  isInflightSession,
+  markInflightSession,
+  clearInflightSession,
+  isWebhookProcessed,
+  markWebhookProcessed,
+  getDedupWindow,
+} from "../linear/dedup";
 
 /**
  * WS-37 (stub): Invocation layer reserved routes.
@@ -133,7 +141,21 @@ export async function handleInvokeRequest(
       return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
     }
 
+    const eventType = payload.data.type;
+    const agentSessionId = payload.data.agentSessionId;
+
+    // 去重：检查会话是否已在处理中
+    if (agentSessionId && isInflightSession(agentSessionId, eventType)) {
+      console.info(`dedup: skipping duplicate agent session ${agentSessionId.slice(0, 8)}... (event=${eventType})`);
+      return json({ status: "duplicate", reason: "session_inflight" }, { status: 200 });
+    }
+
     const traceId = makeTraceId();
+
+    // 标记会话为 in-flight
+    if (agentSessionId) {
+      markInflightSession(agentSessionId, eventType);
+    }
 
     const latestUserMessage = extractAgentActivityBody(payload.data.agentActivity);
 
@@ -176,6 +198,11 @@ export async function handleInvokeRequest(
       });
 
       clearStop(env, sessionId);
+    } else {
+      // 如果没有 session，清除 in-flight 标记
+      if (agentSessionId) {
+        clearInflightSession(agentSessionId);
+      }
     }
 
     let queuedRunId: string | null = null;
