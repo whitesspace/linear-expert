@@ -104,24 +104,56 @@ export async function runOpenClaw(prompt, sessionId, options = {}) {
     cliArgs = DEFAULT_CLI_ARGS,
     timeoutMs = 300000,
     spawnImpl = nodeSpawn,
+    signal = null,
   } = options;
   const args = buildCommandArgs(prompt, sessionId, cliArgs, timeoutMs);
 
   return new Promise((resolve) => {
     let settled = false;
+    let child = null;
+    let timer = null;
+    let abortHandler = null;
+
     const finish = (result) => {
       if (settled) return;
       settled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      if (signal && abortHandler) {
+        signal.removeEventListener("abort", abortHandler);
+      }
       resolve(result);
     };
 
-    const child = spawnImpl(cliBin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    try {
+      child = spawnImpl(cliBin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    } catch (error) {
+      finish({
+        ok: false,
+        error: `openclaw_spawn_error ${error?.code ?? ""}`.trim(),
+        raw: "",
+      });
+      return;
+    }
     let stdout = "";
     let stderr = "";
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       child.kill?.("SIGKILL");
       finish({ ok: false, error: "openclaw_timeout" });
     }, timeoutMs);
+
+    abortHandler = () => {
+      child.kill?.("SIGKILL");
+      finish({ ok: false, error: "run_stopped" });
+    };
+    if (signal) {
+      if (signal.aborted) {
+        abortHandler();
+        return;
+      }
+      signal.addEventListener("abort", abortHandler, { once: true });
+    }
 
     child.stdout?.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -130,7 +162,6 @@ export async function runOpenClaw(prompt, sessionId, options = {}) {
       stderr += chunk.toString();
     });
     child.on("error", (error) => {
-      clearTimeout(timer);
       finish({
         ok: false,
         error: `openclaw_spawn_error ${error?.code ?? ""}`.trim(),
@@ -138,7 +169,6 @@ export async function runOpenClaw(prompt, sessionId, options = {}) {
       });
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
       const intent = parseCliJsonOutput(stdout);
       if (intent) {
         finish({ ok: true, intent });

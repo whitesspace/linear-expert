@@ -1,0 +1,89 @@
+{
+  "id": "linear-expert-bridge",
+  "name": "Linear Expert Bridge",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "linearExpertBaseUrl": {
+        "type": "string",
+        "description": "Base URL of the linear-expert worker."
+      },
+      "internalSecret": {
+        "type": "string",
+        "description": "Bearer secret for linear-expert internal endpoints."
+      },
+      "cliBin": {
+        "type": "string",
+        "default": "openclaw"
+      },
+      "cliArgs": {
+        "type": "string",
+        "default": "agent --json --message"
+      },
+      "pollIntervalMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "default": 5000
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "default": 300000
+      },
+      "heartbeatIntervalMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "default": 10000
+      },
+      "lockDurationSeconds": {
+        "type": "integer",
+        "minimum": 30,
+        "default": 600
+      },
+      "maxRunsPerPoll": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 5
+      },
+      "runOnStartup": {
+        "type": "boolean",
+        "default": true
+      }
+    },
+    "required": ["linearExpertBaseUrl", "internalSecret"]
+  },
+  "uiHints": {
+    "linearExpertBaseUrl": {
+      "label": "Linear Expert Base URL",
+      "placeholder": "https://linear-expert.placeapp.workers.dev"
+    },
+    "internalSecret": {
+      "label": "Internal Secret",
+      "sensitive": true
+    },
+    "cliBin": {
+      "label": "OpenClaw CLI Binary"
+    },
+    "cliArgs": {
+      "label": "OpenClaw CLI Args"
+    },
+    "pollIntervalMs": {
+      "label": "Poll Interval (ms)"
+    },
+    "timeoutMs": {
+      "label": "Execution Timeout (ms)"
+    },
+    "heartbeatIntervalMs": {
+      "label": "Heartbeat Interval (ms)"
+    },
+    "lockDurationSeconds": {
+      "label": "Claim Lock Duration (s)"
+    },
+    "maxRunsPerPoll": {
+      "label": "Max Runs Per Poll"
+    }
+  }
+}

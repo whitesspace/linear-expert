@@ -1,0 +1,174 @@
+import assert from "node:assert/strict";
+import { setTimeout as delay } from "node:timers/promises";
+import {
+  createBridgeState,
+  createLinearExpertClient,
+  normalizeConfig,
+  pollOnce,
+  processClaimedRun,
+  registerBridgePlugin,
+  requestStop,
+  snapshotBridgeState,
+} from "../openclaw/plugins/linear-expert-bridge/plugin-core.mjs";
+
+function buildConfig() {
+  return normalizeConfig({
+    linearExpertBaseUrl: "https://linear-expert.example.com/",
+    internalSecret: "secret",
+    pollIntervalMs: 2500,
+    timeoutMs: 120000,
+    lockDurationSeconds: 900,
+    maxRunsPerPoll: 3,
+  });
+}
+
+async function run() {
+  {
+    const config = buildConfig();
+    assert.equal(config.linearExpertBaseUrl, "https://linear-expert.example.com");
+    assert.equal(config.cliArgs, "agent --json --message");
+    assert.equal(config.maxRunsPerPoll, 3);
+    assert.equal(config.heartbeatIntervalMs, 10000);
+  }
+
+  {
+    const requests = [];
+    const client = createLinearExpertClient(buildConfig(), async (url, init = {}) => {
+      requests.push({ url: String(url), init });
+      if (String(url).includes("/internal/agent-runs?")) {
+        return new Response(JSON.stringify({ runs: [{ id: "run_1" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (String(url).includes("/claim")) {
+        return new Response(JSON.stringify({
+          run: {
+            id: "run_1",
+            agentSessionId: "as_1",
+            payloadJson: JSON.stringify({ prompt: "hello" }),
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (String(url).includes("/result")) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected url ${url}`);
+    });
+
+    const state = createBridgeState();
+    await pollOnce(buildConfig(), state, {
+      client,
+      gatewayCall: async (method, params, options = {}) => {
+        assert.equal(method, "agent");
+        assert.equal(params.message, "hello");
+        assert.equal(params.sessionId, "as_1");
+        assert.equal(options.expectFinal, true);
+        return {
+          reply: "{\"actions\":[{\"kind\":\"noop\"}]}",
+          runId: "gw_run_1",
+        };
+      },
+    });
+    assert.equal(state.processedRuns, 1);
+    assert.ok(requests.some((item) => item.url.includes("/internal/agent-runs/run_1/result")));
+  }
+
+  {
+    const submitted = [];
+    const state = createBridgeState();
+    const run = {
+      id: "run_stop",
+      agentSessionId: "as_stop",
+      payloadJson: JSON.stringify({ prompt: "please stop" }),
+    };
+
+    const processing = processClaimedRun(run, buildConfig(), state, {
+      client: {
+        submitResult: async (runId, payload) => {
+          submitted.push({ runId, payload });
+          return { ok: true };
+        },
+      },
+      executeRun: async ({ signal, onPhase, onHeartbeat }) => {
+        onPhase?.("running");
+        await delay(5);
+        onHeartbeat?.("running");
+        await new Promise((resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+      },
+    });
+
+    await delay(20);
+    assert.equal(requestStop(state, "run_stop"), true);
+    await processing;
+    assert.equal(submitted.length, 1);
+    assert.equal(submitted[0].runId, "run_stop");
+    assert.equal(submitted[0].payload.ok, false);
+    assert.match(String(submitted[0].payload.error), /stopped|aborted/);
+    assert.equal(state.activeRuns.size, 0);
+  }
+
+  {
+    const apiCalls = {
+      services: [],
+      methods: [],
+      clis: [],
+      http: [],
+    };
+    const api = {
+      pluginConfig: buildConfig(),
+      logger: {
+        warn() {},
+        error() {},
+      },
+      registerService(service) {
+        apiCalls.services.push(service);
+      },
+      registerGatewayMethod(name, handler) {
+        apiCalls.methods.push({ name, handler });
+      },
+      registerCli(factory, meta) {
+        apiCalls.clis.push({ factory, meta });
+      },
+      registerHttpRoute(handler) {
+        apiCalls.http.push(handler);
+      },
+    };
+
+    const { config, state } = registerBridgePlugin(api, {
+      deps: {
+        client: {
+          listRuns: async () => [],
+          claimRun: async () => null,
+          submitResult: async () => ({}),
+        },
+        executeRun: async () => ({ ok: true, intent: { actions: [{ kind: "noop" }] } }),
+      },
+    });
+
+    assert.equal(config.linearExpertBaseUrl, "https://linear-expert.example.com");
+    assert.equal(apiCalls.services.length, 1);
+    assert.equal(apiCalls.methods.map((item) => item.name).sort().join(","), "linear-expert-bridge.runOnce,linear-expert-bridge.status,linear-expert-bridge.stop");
+    assert.equal(apiCalls.clis.length, 1);
+    assert.equal(apiCalls.http.length, 1);
+
+    const snapshot = snapshotBridgeState(state, config);
+    assert.equal(snapshot.pluginId, "linear-expert-bridge");
+    assert.equal(snapshot.config.heartbeatIntervalMs, 10000);
+  }
+
+  console.log("openclaw.linear-expert-bridge.test passed");
+}
+
+run().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
