@@ -9,6 +9,7 @@
 4. **回传结果**：`POST /internal/tasks/:id/result`
 
 所有 `/internal/*` 接口都需要 `Authorization: Bearer <OPENCLAW_INTERNAL_SECRET>` 头。
+不支持用 session token 调用这些接口。
 
 ## JSON 示例
 - `examples/pending-task.json`：`GET /internal/tasks` 可能返回的结构。

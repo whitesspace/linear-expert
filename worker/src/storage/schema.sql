@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   source TEXT NOT NULL,
   event_type TEXT NOT NULL,
-  webhook_id TEXT,
+  webhook_id TEXT NOT NULL UNIQUE,
   workspace_id TEXT,
   organization_id TEXT,
   issue_id TEXT,
@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS agent_session_contexts (
   agent_session_id TEXT NOT NULL,
   activity_type TEXT,
   activity_content TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (agent_session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
 );

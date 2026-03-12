@@ -32,7 +32,6 @@ function pickIssueIdentifier(data: Record<string, unknown>): string | null {
 
 function pickWorkspaceId(payload: Record<string, unknown>): string {
   return (
-    asString(payload.teamId) ??
     asString(payload.organizationId) ??
     "unknown-workspace"
   );

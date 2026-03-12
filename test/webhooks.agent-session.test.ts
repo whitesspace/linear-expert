@@ -124,6 +124,7 @@ async function run() {
     };
     const createdBody = JSON.stringify(createdPayload);
     const createdSignature = sign(env.LINEAR_WEBHOOK_SECRET as string, createdBody);
+    const createdTimestamp = String(Date.now());
 
     const createdRes = await worker.fetch(
       new Request("https://example.com/webhooks/linear", {
@@ -131,6 +132,7 @@ async function run() {
         headers: {
           "content-type": "application/json",
           "linear-signature": createdSignature,
+          "linear-timestamp": createdTimestamp,
         },
         body: createdBody,
       }),
@@ -157,6 +159,7 @@ async function run() {
     };
     const commentBody = JSON.stringify(commentPayload);
     const commentSignature = sign(env.LINEAR_WEBHOOK_SECRET as string, commentBody);
+    const commentTimestamp = String(Date.now());
 
     const commentRes = await worker.fetch(
       new Request("https://example.com/webhooks/linear", {
@@ -164,6 +167,7 @@ async function run() {
         headers: {
           "content-type": "application/json",
           "linear-signature": commentSignature,
+          "linear-timestamp": commentTimestamp,
           "linear-event": "Comment",
         },
         body: commentBody,
@@ -184,6 +188,7 @@ async function run() {
         headers: {
           "content-type": "application/json",
           "linear-signature": commentSignature,
+          "linear-timestamp": commentTimestamp,
           "linear-event": "Comment",
         },
         body: commentBody,
@@ -196,6 +201,35 @@ async function run() {
     const duplicateJson = await duplicateRes.json() as { status?: string; reason?: string };
     assert.equal(duplicateJson.status, "accepted");
     assert.equal(duplicateJson.reason, "already_has_session");
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/internal/invoke/agent-session")) {
+        return new Response(JSON.stringify({ error: "invoke_failed" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    const failedInvokeRes = await worker.fetch(
+      new Request("https://example.com/webhooks/linear", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "linear-signature": createdSignature,
+          "linear-timestamp": String(Date.now()),
+        },
+        body: createdBody,
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+
+    assert.equal(failedInvokeRes.status, 502);
+    const failedInvokeJson = await failedInvokeRes.json() as { error?: string };
+    assert.equal(failedInvokeJson.error, "invoke_failed");
   } finally {
     globalThis.fetch = originalFetch;
   }

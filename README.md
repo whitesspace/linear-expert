@@ -118,10 +118,14 @@ linear-expert/
   - 返回 JSON readiness 详情
 - `GET /oauth/start`
   - 启动 Linear OAuth app 授权流程
+  - 会签发短期 `state` 并写入 `HttpOnly + SameSite=Lax` cookie
 - `GET /oauth/callback`
   - 接收 Linear OAuth callback
+  - 只有 query `state` 与 cookie 中的 `state` 一致时才会继续换 token
 - `POST /webhooks/linear`
   - 接收 Linear webhook
+  - 使用 `@linear/sdk/webhooks` 校验 `linear-signature` 与 `linear-timestamp`
+  - 当内部 invocation/comment fallback 失败时返回非 200，允许 Linear 重试
 
 ### Internal（仅 OpenClaw / lec 使用）
 
@@ -167,6 +171,7 @@ linear-expert/
 这些正式 execution APIs 会逐步替代临时 debug 路径。
 
 这些 internal 路由必须通过 `OPENCLAW_INTERNAL_SECRET` 保护。
+当前不支持用 session token 直接调用 `/internal/*`。
 
 ---
 
@@ -194,6 +199,11 @@ linear-expert/
 - `app:mentionable`
 
 这意味着重新授权后，Expert 应该可以开始出现在 Linear 的 assign / mention 相关入口里。
+
+### OAuth state 校验
+- `/oauth/start` 会下发一个 10 分钟有效的 `linear_oauth_state` cookie。
+- `/oauth/callback` 必须携带与 cookie 一致的 `state`，否则会直接返回 `400 Invalid state`。
+- 完成 callback 后会清理该 cookie。
 
 ### 当前项目锚点
 - Worker URL: `https://linear-expert.placeapp.workers.dev`
@@ -336,10 +346,16 @@ test/
 ### 已有测试
 - `storage.memory.test.ts`
   - 测 task create / claim / complete
+- `storage.schema.test.ts`
+  - 测 D1 schema 的 webhook 幂等约束
 - `schemas.test.ts`
   - 测 schema parse / invalid payload
 - `signature.test.ts`
-  - 测 webhook HMAC signature verify
+  - 测 webhook signature + timestamp verify
+- `parser.test.ts`
+  - 测 webhook 中 `workspaceId` 统一使用 organization id
+- `webhooks.agent-session.test.ts`
+  - 测 AgentSession/comment fallback 主路径，以及下游失败时的重试语义
 
 ### 执行
 ```bash
@@ -352,11 +368,10 @@ npm test
 
 这是一个 **v0 skeleton + 部分主干实现**，不是最终成品。当前仍有这些限制：
 
-1. Linear webhook 的签名 header 格式仍需要真实 webhook 实测确认
-2. OAuth callback 虽已接通主干，但仍需要真实安装验证
-3. token persistence / refresh 需要用真实 D1 + OAuth app 走一遍
-4. commentCreate 需要在真实 app actor 模式下验证 UI 上的 actor 显示
-5. OpenClaw pull 这侧还需要接到真实 cron / heartbeat 流程
+1. OAuth callback 虽已接通主干，但仍需要真实安装验证
+2. token persistence / refresh 需要用真实 D1 + OAuth app 走一遍
+3. commentCreate 需要在真实 app actor 模式下验证 UI 上的 actor 显示
+4. OpenClaw pull 这侧还需要接到真实 cron / heartbeat 流程
 
 ---
 
