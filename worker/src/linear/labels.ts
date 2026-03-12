@@ -108,7 +108,14 @@ export async function createIssueLabel(env: Env, workspaceId: string, input: { n
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
-    const data: any = await sdkRequest<any>(
+    type CreateIssueLabelResponse = {
+      issueLabelCreate?: {
+        success?: boolean | null;
+        issueLabel?: { id: string } | null;
+      };
+    };
+
+    const data = await sdkRequest<CreateIssueLabelResponse>(
       client,
       `mutation($input: IssueLabelCreateInput!) {
         issueLabelCreate(input: $input) {
@@ -135,7 +142,13 @@ export async function updateIssueLabel(env: Env, workspaceId: string, id: string
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
-    const data: any = await sdkRequest<any>(
+    type UpdateIssueLabelResponse = {
+      issueLabelUpdate?: {
+        success?: boolean | null;
+      };
+    };
+
+    const data = await sdkRequest<UpdateIssueLabelResponse>(
       client,
       `mutation($id: String!, $input: IssueLabelUpdateInput!) {
         issueLabelUpdate(id: $id, input: $input) {
@@ -161,7 +174,13 @@ export async function retireIssueLabel(env: Env, workspaceId: string, id: string
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
-    const data: any = await sdkRequest<any>(
+    type RetireIssueLabelResponse = {
+      issueLabelRetire?: {
+        success?: boolean | null;
+      };
+    };
+
+    const data = await sdkRequest<RetireIssueLabelResponse>(
       client,
       `mutation($id: String!) {
         issueLabelRetire(id: $id) {
@@ -180,7 +199,13 @@ export async function restoreIssueLabel(env: Env, workspaceId: string, id: strin
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
-    const data: any = await sdkRequest<any>(
+    type RestoreIssueLabelResponse = {
+      issueLabelRestore?: {
+        success?: boolean | null;
+      };
+    };
+
+    const data = await sdkRequest<RestoreIssueLabelResponse>(
       client,
       `mutation($id: String!) {
         issueLabelRestore(id: $id) {
