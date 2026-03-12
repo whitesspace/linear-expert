@@ -29,17 +29,20 @@
 
 ## 安装（本地开发）
 
+在仓库根目录执行：
+
 ```bash
 openclaw plugins install -l ./openclaw/plugins/linear-expert-bridge
 ```
 
 插件目录现在自带 `package.json` 和 `openclaw.extensions` 声明，便于 `plugins install` 正常记录安装来源。
 
-重启 Gateway 后，在 OpenClaw 配置里启用：
+安装后，在 OpenClaw 配置里显式信任并启用插件，然后再重启 Gateway：
 
 ```json
 {
   "plugins": {
+    "allow": ["linear-expert-bridge"],
     "entries": {
       "linear-expert-bridge": {
         "enabled": true,
@@ -59,6 +62,24 @@ openclaw plugins install -l ./openclaw/plugins/linear-expert-bridge
   }
 }
 ```
+
+推荐的验证顺序：
+
+```bash
+openclaw gateway.restart
+openclaw linear-expert-bridge status
+openclaw doctor --non-interactive
+```
+
+如果 `plugins.allow` 留空，Gateway 可能会把本地目录下的插件当作“自动发现的未信任插件”加载，并持续输出 provenance 警告。
+
+## 安装排障
+
+- 如果安装时报“没有 `package.json`”，确认你安装的是当前目录 `./openclaw/plugins/linear-expert-bridge`，而不是旧的拷贝目录。
+- 如果日志出现 `loaded without install/load-path provenance`，通常说明插件是手工复制进 `~/.openclaw/extensions` 的，而不是通过 `openclaw plugins install` 安装。
+- 如果日志出现 `plugins.allow is empty`，说明配置里没有显式信任 `linear-expert-bridge`。
+- 如果日志出现 `http route registration missing or invalid auth`，说明你运行的是旧版本插件；当前版本已经不再注册插件 HTTP route。
+- 如果日志持续出现 `http_500`，说明远端 `linear-expert` Worker 的 `/internal/agent-runs` 在报错，这属于 Worker 侧问题，不是安装步骤本身的问题。
 
 ## 当前限制
 
