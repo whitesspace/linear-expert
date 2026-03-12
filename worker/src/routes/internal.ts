@@ -289,8 +289,18 @@ async function handleResolve(request: Request, env: Env): Promise<Response> {
     const { getStorage } = await import("../storage");
     const storage = getStorage(env);
 
-    // Default workspaceId fallback must match oauth callback fallback.
-    const workspaceId = payload.data.workspaceId ?? "default-workspace";
+    const workspaceId = payload.data.workspaceId;
+    if (!workspaceId) {
+      return json(
+        {
+          ok: false,
+          error: "invalid_request",
+          message: "workspaceId is required (use Linear webhook organizationId).",
+        },
+        { status: 400 },
+      );
+    }
+
     const token = await storage.oauth.get(workspaceId);
     if (!token?.accessToken) {
       return json(

@@ -33,10 +33,11 @@ export async function oauthCallback(request: Request, env: Env): Promise<Respons
   const accessToken = tokenResponse.access_token as string;
   const identity = await getInstallationIdentity(accessToken);
 
-  const workspaceId =
-    identity.organization?.id ||
-    identity.viewer?.id ||
-    'default-workspace';
+  const workspaceId = identity.organization?.id;
+  if (!workspaceId) {
+    // In app-install OAuth, organization.id should always exist.
+    return Response.json({ ok: false, error: "Missing organization id in installation identity" }, { status: 500 });
+  }
 
   await storage.oauth.upsert({
     workspaceId,
