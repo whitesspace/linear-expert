@@ -23,17 +23,24 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function buildCommandArgs(prompt) {
+function buildCommandArgs(prompt, sessionId) {
   const args = splitArgs(CLI_ARGS);
   const messageIndex = args.indexOf("--message");
   if (messageIndex === -1) {
-    return [...args, "--message", prompt];
+    const baseArgs = [...args, "--message", prompt];
+    if (sessionId) {
+      baseArgs.push("--session-id", sessionId);
+    }
+    return baseArgs;
   }
   const withPrompt = [...args];
   if (messageIndex === args.length - 1) {
     withPrompt.push(prompt);
   } else {
     withPrompt.splice(messageIndex + 1, 1, prompt);
+  }
+  if (sessionId) {
+    withPrompt.push("--session-id", sessionId);
   }
   return withPrompt;
 }
@@ -71,8 +78,8 @@ async function submitResult(runId, payload) {
   });
 }
 
-async function runOpenClaw(prompt) {
-  const args = buildCommandArgs(prompt);
+async function runOpenClaw(prompt, sessionId) {
+  const args = buildCommandArgs(prompt, sessionId);
   return new Promise((resolve) => {
     const child = spawn(CLI_BIN, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
@@ -116,7 +123,9 @@ async function handleRun(run) {
     await submitResult(run.id, { ok: false, error: "missing_prompt" });
     return;
   }
-  const result = await runOpenClaw(prompt);
+  // 使用 agentSessionId 作为 OpenClaw session-id 以保持上下文
+  const sessionId = run.agentSessionId || null;
+  const result = await runOpenClaw(prompt, sessionId);
   await submitResult(run.id, result);
 }
 

@@ -5,6 +5,7 @@ import { assertInternalSecret } from "../auth/internal";
 import type { StorageAdapter } from "../storage/types";
 import { createAgentActivity } from "../linear/agent";
 import { clearStop, requestStop } from "../storage/stop";
+import { buildEnrichedPrompt, type PromptContext } from "../linear/prompt-builder";
 
 /**
  * WS-37 (stub): Invocation layer reserved routes.
@@ -28,17 +29,6 @@ const AgentSessionEventSchema = z.object({
   agentActivity: z.unknown().optional(),
   previousComments: z.unknown().optional(),
 });
-
-type FirstThoughtInput = {
-  eventType: string;
-  agentSessionId?: string;
-  workspaceId?: string;
-  traceId?: string;
-  promptContext?: unknown;
-  issue?: unknown;
-  guidance?: unknown;
-  latestUserMessage?: string;
-};
 
 function pickString(obj: unknown, path: string[]): string | undefined {
   let cur: unknown = obj;
@@ -69,94 +59,6 @@ function extractPromptContextText(promptContext: unknown): string | undefined {
 
 function extractAgentActivityBody(agentActivity: unknown): string | undefined {
   return pickString(agentActivity, ["body"]);
-}
-
-function buildFirstThoughtPrompt(input: FirstThoughtInput): string {
-  const issueTitle =
-    pickString(input.issue, ["title"]) ||
-    pickString(input.promptContext, ["issue", "title"]) ||
-    pickString(input.promptContext, ["issue", "name"]);
-
-  const issueIdentifier =
-    pickString(input.issue, ["identifier"]) ||
-    pickString(input.promptContext, ["issue", "identifier"]);
-
-  const issueUrl =
-    pickString(input.issue, ["url"]) ||
-    pickString(input.promptContext, ["issue", "url"]) ||
-    pickString(input.promptContext, ["issue", "externalUrl"]);
-
-  const guidanceText =
-    pickString(input.guidance, ["text"]) ||
-    pickString(input.promptContext, ["guidance"]) ||
-    pickString(input.promptContext, ["guidance", "text"]);
-
-  const recentComment =
-    pickString(input.promptContext, ["comment", "body"]) ||
-    pickString(input.promptContext, ["comment", "text"]) ||
-    pickString(input.promptContext, ["comment"]) ||
-    pickString(input.promptContext, ["latestComment", "body"]);
-
-  const promptContextText = extractPromptContextText(input.promptContext);
-
-  const workspaceHint = input.workspaceId ? `workspace=${input.workspaceId}` : undefined;
-  const sessionHint = input.agentSessionId ? `agentSessionId=${input.agentSessionId}` : undefined;
-  const traceHint = input.traceId ? `traceId=${input.traceId}` : undefined;
-
-  const headerParts = [
-    issueIdentifier && issueTitle ? `${issueIdentifier} — ${issueTitle}` : issueTitle || issueIdentifier,
-    issueUrl,
-    workspaceHint,    sessionHint,
-    traceHint,
-  ].filter(Boolean);
-
-  // Derive a concrete task statement from available context.
-  const task =
-    pickString(input.promptContext, ["task"]) ||
-    pickString(input.promptContext, ["intent"]) ||
-    pickString(input.promptContext, ["userRequest"]) ||
-    (input.latestUserMessage ? "Respond to the latest user message in this agent session." : undefined) ||
-    (recentComment ? `Respond to the latest comment and take appropriate Linear-native actions.` : undefined) ||
-    `Handle AgentSessionEvent type=${input.eventType}.`;
-
-  const sourceHints: string[] = [];
-  if (guidanceText) sourceHints.push("guidance");
-  if (promptContextText) sourceHints.push("promptContext");
-  if (input.latestUserMessage) sourceHints.push("userMessage");
-  if (recentComment) sourceHints.push("comment");
-  if (issueTitle || issueIdentifier) sourceHints.push("issue");
-  if (sourceHints.length === 0) sourceHints.push("event");
-
-  const lines = [
-    "我是 Linear Expert（agent/app），以下内容由 agent 自动生成。",
-    headerParts.length ? `上下文: ${headerParts.join(" | ")}` : "上下文: (缺少 issue 元数据)",
-    `可用信息源: ${sourceHints.join(", ")}.`,
-    "",
-    "我会按以下节奏推进：",
-    "1) 读取 promptContext/issue/guidance 与最近评论，确认用户意图与约束",
-    "2) 生成结构化执行意图（仅限 execution layer 允许的动作集合）",
-    "3) 执行 Linear 原生动作并回写 AgentActivities（action/response/error）",
-    "",
-    `当前任务: ${task}`,
-  ];
-
-  if (guidanceText) {
-    lines.push("", "Guidance:", guidanceText);
-  }
-
-  if (promptContextText) {
-    lines.push("", "PromptContext:", promptContextText);
-  }
-
-  if (input.latestUserMessage) {
-    lines.push("", "Latest user message:", input.latestUserMessage);
-  }
-
-  if (recentComment) {
-    lines.push("", "Latest user comment:", recentComment);
-  }
-
-  return lines.join("\n").trim();
 }
 
 const InvokeSignalSchema = z.object({
@@ -234,21 +136,25 @@ export async function handleInvokeRequest(
 
     const latestUserMessage = extractAgentActivityBody(payload.data.agentActivity);
 
-    const firstThoughtPrompt = buildFirstThoughtPrompt({
-      eventType: payload.data.type,
-      agentSessionId: payload.data.agentSessionId,
-      workspaceId: payload.data.workspaceId,
-      traceId,
+    const origin = new URL(request.url).origin;
+
+    const promptContext: PromptContext = {
+      issue: payload.data.issue as any,
+      guidance: typeof payload.data.guidance === "string" ? payload.data.guidance : undefined,
       promptContext: payload.data.promptContext,
-      issue: payload.data.issue,
-      guidance: payload.data.guidance,
       latestUserMessage,
-    });
+      eventType: payload.data.type,
+      workspaceId: payload.data.workspaceId ?? undefined,
+      agentSessionId: payload.data.agentSessionId ?? undefined,
+      traceId,
+    };
+
+    const firstThoughtPrompt = buildEnrichedPrompt(promptContext, origin);
 
     // WS-37: write trace -> agentSessionId/workspaceId map for later correlation.
     await storage.trace.set(traceId, {
-      agentSessionId: payload.data.agentSessionId,
-      workspaceId: payload.data.workspaceId,
+      agentSessionId: payload.data.agentSessionId ?? undefined,
+      workspaceId: payload.data.workspaceId ?? undefined,
       eventType: payload.data.type,
       createdAt: new Date().toISOString(),
     });
@@ -258,15 +164,17 @@ export async function handleInvokeRequest(
 
     // v0: write the first AgentActivity(thought) back to Linear within the 10s budget.
     if (hasSession && isCreatedEvent) {
-      await createAgentActivity(env, payload.data.workspaceId, {
-        agentSessionId: payload.data.agentSessionId,
+      const wsId = payload.data.workspaceId!;
+      const sessionId = payload.data.agentSessionId!;
+      await createAgentActivity(env, wsId, {
+        agentSessionId: sessionId,
         type: "thought",
         content: {
           body: firstThoughtPrompt,
         },
       });
 
-      clearStop(env, payload.data.agentSessionId);
+      clearStop(env, sessionId);
     }
 
     let queuedRunId: string | null = null;
@@ -287,8 +195,8 @@ export async function handleInvokeRequest(
       };
       const run = await storage.agentRuns.create({
         traceId,
-        agentSessionId: payload.data.agentSessionId,
-        workspaceId: payload.data.workspaceId,
+        agentSessionId: payload.data.agentSessionId!,
+        workspaceId: payload.data.workspaceId!,
         eventType: payload.data.type,
         payloadJson: JSON.stringify(runPayload),
       });
@@ -330,21 +238,25 @@ export async function handleInvokeRequest(
 
     const latestUserMessage = extractAgentActivityBody(payload.data.agentActivity);
 
-    const firstThoughtPrompt = buildFirstThoughtPrompt({
-      eventType: payload.data.type || "AgentSessionEvent.created",
-      agentSessionId: payload.data.agentSessionId,
-      workspaceId: payload.data.workspaceId,
-      traceId,
+    const origin = new URL(request.url).origin;
+
+    const promptContext: PromptContext = {
+      issue: payload.data.issue as any,
+      guidance: typeof payload.data.guidance === "string" ? payload.data.guidance : undefined,
       promptContext: payload.data.promptContext,
-      issue: payload.data.issue,
-      guidance: payload.data.guidance,
       latestUserMessage,
-    });
+      eventType: payload.data.type || "AgentSessionEvent.created",
+      workspaceId: payload.data.workspaceId ?? undefined,
+      agentSessionId: payload.data.agentSessionId ?? undefined,
+      traceId,
+    };
+
+    const firstThoughtPrompt = buildEnrichedPrompt(promptContext, origin);
 
     // WS-37: keep replay endpoint consistent with production invocation by writing trace correlation too.
     await storage.trace.set(traceId, {
-      agentSessionId: payload.data.agentSessionId,
-      workspaceId: payload.data.workspaceId,
+      agentSessionId: payload.data.agentSessionId ?? undefined,
+      workspaceId: payload.data.workspaceId ?? undefined,
       eventType: payload.data.type,
       createdAt: new Date().toISOString(),
     });
@@ -377,9 +289,11 @@ export async function handleInvokeRequest(
     const signalType = payload.data.type;
 
     if (signalType === "stop" && payload.data.agentSessionId && payload.data.workspaceId) {
-      requestStop(env, payload.data.agentSessionId);
-      await createAgentActivity(env, payload.data.workspaceId, {
-        agentSessionId: payload.data.agentSessionId,
+      const wsId = payload.data.workspaceId!;
+      const sessionId = payload.data.agentSessionId!;
+      requestStop(env, sessionId);
+      await createAgentActivity(env, wsId, {
+        agentSessionId: sessionId,
         type: "response",
         content: {
           body: "已收到 stop signal，将立即停止后续动作。",
@@ -390,13 +304,20 @@ export async function handleInvokeRequest(
     }
 
     // For other signals, just acknowledge with a derived prompt.
-    const firstThoughtPrompt = buildFirstThoughtPrompt({
-      eventType: `signal:${signalType}`,
-      agentSessionId: payload.data.agentSessionId,
-      workspaceId: payload.data.workspaceId,
-      traceId,
+    const origin = new URL(request.url).origin;
+
+    const promptContext: PromptContext = {
+      issue: undefined,
+      guidance: undefined,
       promptContext: payload.data.data,
-    });
+      latestUserMessage: undefined,
+      eventType: `signal:${signalType}`,
+      workspaceId: payload.data.workspaceId ?? undefined,
+      agentSessionId: payload.data.agentSessionId ?? undefined,
+      traceId,
+    };
+
+    const firstThoughtPrompt = buildEnrichedPrompt(promptContext, origin);
 
     return json({ ok: true, traceId, reserved: { receivedType: signalType, firstThoughtPrompt } }, { status: 200 });
   }

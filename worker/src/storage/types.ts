@@ -45,8 +45,8 @@ export interface TraceStore {
   set(
     traceId: string,
     record: {
-      agentSessionId?: string;
-      workspaceId?: string;
+      agentSessionId?: string | null;
+      workspaceId?: string | null;
       eventType: string;
       createdAt: string; // ISO timestamp
     },

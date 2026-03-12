@@ -228,9 +228,15 @@ class InMemoryTraceStore implements TraceStore {
 
   async set(
     traceId: string,
-    record: { agentSessionId?: string; workspaceId?: string; eventType: string; createdAt: string },
+    record: { agentSessionId?: string | null; workspaceId?: string | null; eventType: string; createdAt: string },
   ): Promise<void> {
-    this.traces.set(traceId, { traceId, ...record });
+    this.traces.set(traceId, {
+      traceId,
+      agentSessionId: record.agentSessionId ?? undefined,
+      workspaceId: record.workspaceId ?? undefined,
+      eventType: record.eventType,
+      createdAt: record.createdAt,
+    });
   }
 
   async get(traceId: string): Promise<
