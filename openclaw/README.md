@@ -5,7 +5,9 @@
 ## 调用流程
 1. **拉取 agent run**：`GET /internal/agent-runs?status=pending&limit=5`
 2. **领取 agent run**：`POST /internal/agent-runs/:id/claim`，body 固定 `{"lockDurationSeconds":600}`
-3. **调用 OpenClaw CLI**：默认使用 `openclaw agent --json --message ...`
+3. **执行 agent run**：
+   - 优先由 `plugins/linear-expert-bridge` 走 Gateway runtime-first 适配执行
+   - 当前若 Gateway 没暴露稳定 runtime 调用入口，会退回 `openclaw agent --json --message ...`
 4. **回传 intent 结果**：`POST /internal/agent-runs/:id/result`
 
 所有 `/internal/*` 接口都需要 `Authorization: Bearer <OPENCLAW_INTERNAL_SECRET>` 头。
@@ -18,3 +20,11 @@
 ## TODO
 - 添加 `agent-runs` 对应的新示例 JSON。
 - 保存 Expert 提示词模板与 few-shot 示例。
+
+## Plugin Prototype
+
+- `plugins/linear-expert-bridge/`
+  - OpenClaw Gateway 插件原型
+  - 用 background service + Gateway RPC 方式替代外部 runner 守护进程
+  - 当前为 runtime-first + CLI fallback 过渡版
+  - 已支持 `status / runOnce / stop` 与 active run heartbeat 可观测性

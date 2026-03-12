@@ -76,6 +76,26 @@ async function run() {
     assert.equal(result.intent?.actions?.[0]?.kind, "comment");
   }
 
+  {
+    const controller = new AbortController();
+    let childRef = null;
+    const resultPromise = runOpenClaw("hello", "session_4", {
+      cliBin: "openclaw",
+      cliArgs: "agent --json --message",
+      timeoutMs: 1000,
+      signal: controller.signal,
+      spawnImpl() {
+        childRef = new FakeChildProcess();
+        return childRef;
+      },
+    });
+    controller.abort();
+    const result = await resultPromise;
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "run_stopped");
+    assert.equal(childRef?.killedWith, "SIGKILL");
+  }
+
   console.log("openclaw.runner-core.test passed");
 }
 

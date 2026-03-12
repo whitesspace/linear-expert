@@ -18,6 +18,7 @@ const tests = [
   'test/task-results.routes.test.ts',
   'test/openclaw.runner-utils.test.ts',
   'test/openclaw.runner-core.test.ts',
+  'test/openclaw.linear-expert-bridge.test.ts',
   'test/lec.cli.test.ts',
   'test/invoke-replay.test.mjs'
 ];
