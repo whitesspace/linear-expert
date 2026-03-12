@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 const tests = [
   'test/storage.memory.test.ts',
   'test/storage.schema.test.ts',
+  'test/d1.agent-runs.bootstrap.test.ts',
   'test/schemas.test.ts',
   'test/signature.test.ts',
   'test/parser.test.ts',

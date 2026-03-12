@@ -5,6 +5,7 @@ import { getInstallationIdentityForWorkspace } from "../linear/client";
 import { parseLinearWebhook } from "../linear/parser";
 import { verifyLinearSignature } from "../linear/signature";
 import type { StorageAdapter } from "../storage/types";
+import { handleAgentSessionInvokePayload } from "./invoke";
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -42,26 +43,16 @@ function buildSyntheticCreatedPayload(input: {
 async function invokeAgentSession(
   request: Request,
   env: Env,
+  storage: StorageAdapter,
   payload: Record<string, unknown>,
 ): Promise<Response> {
-  const url = new URL(request.url);
-  const invokeUrl = `${url.origin}/internal/invoke/agent-session`;
   try {
-    const resp = await fetch(invokeUrl, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${env.OPENCLAW_INTERNAL_SECRET}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
+    const resp = await handleAgentSessionInvokePayload(payload as any, env, storage, new URL(request.url).origin);
     if (!resp.ok) {
       const message = (await resp.text()).slice(0, 800);
       console.error("agent_session invoke failed", { status: resp.status, message });
       return json({ error: "invoke_failed", invokeStatus: resp.status }, { status: 502 });
     }
-
     return json({ status: "accepted", kind: "agentSession", invokeStatus: resp.status }, { status: 200 });
   } catch (error) {
     console.error("agent_session invoke transport error", error);
@@ -125,7 +116,7 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
       agentActivity,
       previousComments: (parsed as any)?.previousComments ?? data?.previousComments,
     };
-    return invokeAgentSession(request, env, invokePayload);
+    return invokeAgentSession(request, env, storage, invokePayload);
   }
 
   // WS-37: Comment fallback invocation (C):
@@ -154,7 +145,7 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
           buildAgentSessionExternalUrls(new URL(request.url).origin, session.agentSessionId),
         );
 
-        const invokeResponse = await invokeAgentSession(request, env, buildSyntheticCreatedPayload({
+        const invokeResponse = await invokeAgentSession(request, env, storage, buildSyntheticCreatedPayload({
           agentSessionId: session.agentSessionId,
           workspaceId,
           issue: data.issue,
@@ -200,7 +191,7 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
             buildAgentSessionExternalUrls(new URL(request.url).origin, session.agentSessionId),
           );
 
-          const invokeResponse = await invokeAgentSession(request, env, buildSyntheticCreatedPayload({
+          const invokeResponse = await invokeAgentSession(request, env, storage, buildSyntheticCreatedPayload({
             agentSessionId: session.agentSessionId,
             workspaceId,
             issue: data,

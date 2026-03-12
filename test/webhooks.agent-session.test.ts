@@ -6,7 +6,7 @@ import { getStorage } from "../worker/src/storage";
 type TestEnv = Parameters<typeof worker.fetch>[1];
 
 type FetchCall = {
-  kind: "invoke" | "graphql";
+  kind: "graphql";
   body: any;
   url: string;
 };
@@ -42,15 +42,6 @@ async function run() {
 
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.includes("/internal/invoke/agent-session")) {
-      const body = JSON.parse(String(init?.body ?? "{}"));
-      calls.push({ kind: "invoke", body, url });
-      return new Response(JSON.stringify({ ok: true, traceId: "trace_test" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    }
-
     if (url.includes("api.linear.app/graphql")) {
       if (nextGraphqlError) {
         const message = nextGraphqlError;
@@ -133,6 +124,71 @@ async function run() {
         });
       }
 
+      if (query.includes("query agentActivity") || query.includes("agentActivity(id:")) {
+        return new Response(JSON.stringify({
+          data: {
+            agentActivity: {
+              id: "aa_1",
+              archivedAt: null,
+            },
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (query.includes("query($id: ID!)") && query.includes("issue(id: $id)")) {
+        return new Response(JSON.stringify({
+          data: {
+            issue: {
+              id: body?.variables?.id ?? "issue_1",
+              team: { id: "team_1" },
+              state: { id: "state_backlog", name: "Backlog", type: "unstarted" },
+            },
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (query.includes("query($teamId: String!)") && query.includes("team(id: $teamId)")) {
+        return new Response(JSON.stringify({
+          data: {
+            team: {
+              states: {
+                nodes: [
+                  { id: "state_started", name: "In Progress", type: "started", position: 1 },
+                ],
+              },
+            },
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (query.includes("mutation($id: String!, $input: IssueUpdateInput!)")) {
+        return new Response(JSON.stringify({
+          data: {
+            issueUpdate: {
+              success: true,
+              issue: {
+                id: body?.variables?.id ?? "issue_1",
+                identifier: "WS-1",
+                title: "Updated",
+                url: "https://linear.app/example/issue/WS-1",
+              },
+            },
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
       // Default: return empty data to avoid blowing up the SDK on unexpected shapes.
       return new Response(JSON.stringify({ data: {} }), {
         status: 200,
@@ -181,11 +237,8 @@ async function run() {
     );
 
     assert.equal(createdRes.status, 200);
-    const invokeCall = calls.find((call) => call.kind === "invoke");
-    assert.ok(invokeCall);
-    assert.equal(invokeCall?.body.agentSessionId, "as_1");
-    assert.equal(invokeCall?.body.workspaceId, "ws_1");
-    assert.equal(invokeCall?.body.agentActivity?.body, "Hello there");
+    const createdRuns = await getStorage(env).agentRuns.listByStatus({ status: "pending", limit: 10 });
+    assert.ok(createdRuns.some((run) => run.agentSessionId === "as_1" && run.workspaceId === "ws_1"));
 
     const commentPayload = {
       type: "Comment",
@@ -217,20 +270,21 @@ async function run() {
     );
 
     assert.equal(commentRes.status, 200);
-    const graphqlCall = calls.find((call) => call.kind === "graphql");
+    const graphqlCall = calls.find((call) => String(call.body?.query ?? "").includes("agentSessionCreateOnComment"));
     assert.ok(graphqlCall);
     assert.match(String(graphqlCall?.body.query ?? ""), /agentSessionCreateOnComment/);
-    const commentExternalUrlCall = calls.find((call) => String(call.body?.query ?? "").includes("agentSessionUpdateExternalUrl"));
+    const commentExternalUrlCall = calls.find((call) =>
+      String(call.body?.query ?? "").includes("agentSessionUpdateExternalUrl")
+      && call.body?.variables?.id === "as_comment"
+    );
     assert.deepEqual(commentExternalUrlCall?.body.variables?.input?.externalUrls, [
       {
         label: "查看处理状态",
         url: "https://example.com/agent-sessions/as_comment",
       },
     ]);
-    const commentInvokeCall = calls.filter((call) => call.kind === "invoke").at(-1);
-    assert.equal(commentInvokeCall?.body.agentSessionId, "as_comment");
-    assert.equal(commentInvokeCall?.body.workspaceId, "ws_1");
-    assert.equal(commentInvokeCall?.body.agentActivity?.body, "@agent please help");
+    const commentRuns = await getStorage(env).agentRuns.listByStatus({ status: "pending", limit: 10 });
+    assert.ok(commentRuns.some((run) => run.agentSessionId === "as_comment" && run.workspaceId === "ws_1"));
 
     nextGraphqlError = "Comment already has an agent session";
     const duplicateRes = await worker.fetch(
@@ -298,31 +352,35 @@ async function run() {
         url: "https://example.com/agent-sessions/as_issue",
       },
     ]);
-    const assignInvokeCall = calls.filter((call) => call.kind === "invoke").at(-1);
-    assert.equal(assignInvokeCall?.body.agentSessionId, "as_issue");
-    assert.equal(assignInvokeCall?.body.issue?.id, "issue_2");
-    assert.equal(assignInvokeCall?.body.workspaceId, "ws_1");
+    const assignRuns = await getStorage(env).agentRuns.listByStatus({ status: "pending", limit: 10 });
+    assert.ok(assignRuns.some((run) => run.agentSessionId === "as_issue" && run.workspaceId === "ws_1"));
 
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("/internal/invoke/agent-session")) {
-        return new Response(JSON.stringify({ error: "invoke_failed" }), {
-          status: 500,
-          headers: { "content-type": "application/json" },
-        });
+      if (url.includes("api.linear.app/graphql")) {
+        throw new Error("graphql unavailable");
       }
       return originalFetch(input, init);
     }) as typeof fetch;
 
+    const failedCreatedPayload = {
+      ...createdPayload,
+      agentSession: {
+        ...(createdPayload.agentSession),
+        id: "as_fail",
+      },
+    };
+    const failedCreatedBody = JSON.stringify(failedCreatedPayload);
+    const failedCreatedSignature = sign(env.LINEAR_WEBHOOK_SECRET as string, failedCreatedBody);
     const failedInvokeRes = await worker.fetch(
       new Request("https://example.com/webhooks/linear", {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "linear-signature": createdSignature,
+          "linear-signature": failedCreatedSignature,
           "linear-timestamp": String(Date.now()),
         },
-        body: createdBody,
+        body: failedCreatedBody,
       }),
       env,
       {} as ExecutionContext,

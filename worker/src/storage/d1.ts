@@ -22,6 +22,63 @@ import type {
 import type { AgentRunStore, OAuthStore, ReplyStore, StorageAdapter, TaskStore, TraceStore, SessionStore, SessionContextStore } from "./types";
 
 const ISO = () => new Date().toISOString();
+const AGENT_RUN_SCHEMA_PROMISES = new WeakMap<object, Promise<void>>();
+const AGENT_RUN_REQUIRED_COLUMNS = [
+  { name: "last_heartbeat_at", sql: "ALTER TABLE agent_runs ADD COLUMN last_heartbeat_at TEXT" },
+  { name: "progress_phase", sql: "ALTER TABLE agent_runs ADD COLUMN progress_phase TEXT" },
+  { name: "progress_message", sql: "ALTER TABLE agent_runs ADD COLUMN progress_message TEXT" },
+  { name: "progress_percent", sql: "ALTER TABLE agent_runs ADD COLUMN progress_percent REAL" },
+  { name: "gateway_run_id", sql: "ALTER TABLE agent_runs ADD COLUMN gateway_run_id TEXT" },
+] as const;
+
+async function ensureAgentRunSchema(db: D1Database): Promise<void> {
+  const dbKey = db as unknown as object;
+  const existing = AGENT_RUN_SCHEMA_PROMISES.get(dbKey);
+  if (existing) {
+    await existing;
+    return;
+  }
+
+  const pending = (async () => {
+    // 中文注释：生产 D1 可能晚于代码升级，这里先自愈 agent_runs 基础结构。
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS agent_runs (
+          id TEXT PRIMARY KEY,
+          agent_session_id TEXT NOT NULL,
+          workspace_id TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          trace_id TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          lock_expires_at TEXT
+        )`
+      )
+      .run();
+
+    const info = await db.prepare("PRAGMA table_info(agent_runs)").all();
+    const columnNames = new Set((info.results ?? []).map((row) => String((row as Record<string, unknown>).name ?? "")));
+    for (const column of AGENT_RUN_REQUIRED_COLUMNS) {
+      if (columnNames.has(column.name)) continue;
+      try {
+        await db.prepare(column.sql).run();
+      } catch (error) {
+        const message = String((error as Error)?.message ?? error).toLowerCase();
+        if (!message.includes("duplicate column")) {
+          throw error;
+        }
+      }
+    }
+  })().catch((error) => {
+    AGENT_RUN_SCHEMA_PROMISES.delete(dbKey);
+    throw error;
+  });
+
+  AGENT_RUN_SCHEMA_PROMISES.set(dbKey, pending);
+  await pending;
+}
 
 function mapTaskRow(row: Record<string, unknown>): TaskRecord {
   return {
@@ -216,6 +273,7 @@ class D1AgentRunStore implements AgentRunStore {
   constructor(private readonly db: D1Database) {}
 
   async create(run: NewAgentRunRecord): Promise<AgentRunRecord> {
+    await ensureAgentRunSchema(this.db);
     const now = ISO();
     const id = crypto.randomUUID();
     await this.db
@@ -253,6 +311,7 @@ class D1AgentRunStore implements AgentRunStore {
   }
 
   async findById(runId: string): Promise<AgentRunRecord | null> {
+    await ensureAgentRunSchema(this.db);
     const result = await this.db
       .prepare(`SELECT * FROM agent_runs WHERE id = ? LIMIT 1`)
       .bind(runId)
@@ -261,6 +320,7 @@ class D1AgentRunStore implements AgentRunStore {
   }
 
   async listByStatus(filter: AgentRunFilter): Promise<AgentRunRecord[]> {
+    await ensureAgentRunSchema(this.db);
     const limit = filter.limit ?? 25;
     const results = await this.db
       .prepare(
@@ -273,6 +333,7 @@ class D1AgentRunStore implements AgentRunStore {
   }
 
   async claim(runId: string, lockDurationSeconds: number): Promise<AgentRunRecord | null> {
+    await ensureAgentRunSchema(this.db);
     const nowIso = ISO();
     const lockExpiresAt = new Date(Date.now() + lockDurationSeconds * 1000).toISOString();
     const rows = await this.db
@@ -291,6 +352,7 @@ class D1AgentRunStore implements AgentRunStore {
   }
 
   async updateHeartbeat(runId: string, patch: AgentRunHeartbeatPatch): Promise<AgentRunRecord | null> {
+    await ensureAgentRunSchema(this.db);
     const now = ISO();
     const rows = await this.db
       .prepare(
@@ -321,6 +383,7 @@ class D1AgentRunStore implements AgentRunStore {
   }
 
   async applyResult(runId: string, patch: AgentRunResultPatch): Promise<AgentRunRecord | null> {
+    await ensureAgentRunSchema(this.db);
     const now = ISO();
     const rows = await this.db
       .prepare(

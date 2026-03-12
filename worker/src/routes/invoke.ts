@@ -178,6 +178,195 @@ async function parseJson(request: Request): Promise<unknown> {
   }
 }
 
+export async function handleAgentSessionInvokePayload(
+  payload: z.infer<typeof AgentSessionEventSchema>,
+  env: Env,
+  storage: StorageAdapter,
+  origin: string,
+): Promise<Response> {
+  const eventType = payload.type;
+  const agentSessionId = payload.agentSessionId;
+
+  // 去重：检查会话是否已在处理中
+  if (agentSessionId && isInflightSession(agentSessionId, eventType)) {
+    console.info(`dedup: skipping duplicate agent session ${agentSessionId.slice(0, 8)}... (event=${eventType})`);
+    return json({ status: "duplicate", reason: "session_inflight" }, { status: 200 });
+  }
+
+  const traceId = makeTraceId();
+
+  // 标记会话为 in-flight
+  if (agentSessionId) {
+    markInflightSession(agentSessionId, eventType);
+  }
+
+  const latestUserMessage = extractAgentActivityBody(payload.agentActivity);
+
+  // 🆕 检查是否存在持久化会话（即使几天/几周前）
+  let restoredContext = null;
+  if (agentSessionId && payload.workspaceId) {
+    restoredContext = await restoreSessionContext(env, payload.workspaceId, agentSessionId, storage);
+  }
+
+  const promptContext: PromptContext = {
+    issue: payload.issue as any,
+    guidance: typeof payload.guidance === "string" ? payload.guidance : undefined,
+    promptContext: payload.promptContext,
+    latestUserMessage,
+    eventType: payload.type,
+    workspaceId: payload.workspaceId ?? undefined,
+    agentSessionId: payload.agentSessionId ?? undefined,
+    traceId,
+  };
+
+  // 如果存在历史会话，添加上下文摘要
+  if (restoredContext?.exists && restoredContext.summaryPrompt) {
+    promptContext.restoredContext = restoredContext.summaryPrompt;
+
+    // 更新会话的最后活动时间
+    if (restoredContext.sessionRecord) {
+      await storage.sessions.updateLastActivity(restoredContext.sessionRecord.id);
+    }
+  }
+
+  const firstThoughtPrompt = buildEnrichedPrompt(promptContext, origin);
+
+  // WS-37: write trace -> agentSessionId/workspaceId map for later correlation.
+  await storage.trace.set(traceId, {
+    agentSessionId: payload.agentSessionId ?? undefined,
+    workspaceId: payload.workspaceId ?? undefined,
+    eventType: payload.type,
+    createdAt: new Date().toISOString(),
+  });
+
+  const hasSession = Boolean(payload.workspaceId && payload.agentSessionId);
+  const isCreatedEvent = payload.type.includes("created");
+  const initialThoughtBody = buildInitialThoughtBody(payload.type, latestUserMessage);
+
+  if (hasSession && isCreatedEvent) {
+    const existingSession = await storage.sessions.findByAgentSessionId(payload.agentSessionId!);
+    if (existingSession) {
+      return json({
+        ok: true,
+        traceId,
+        reserved: {
+          receivedType: payload.type,
+          duplicateCreated: true,
+          wroteThought: false,
+          queuedRunId: null,
+          traceStore: {
+            wrote: true,
+            agentSessionId: payload.agentSessionId,
+            workspaceId: payload.workspaceId,
+          },
+        },
+      }, { status: 200 });
+    }
+  }
+
+  // 🆕 创建或恢复会话（持久化）
+  if (hasSession) {
+    const wsId = payload.workspaceId!;
+    const sessionId = payload.agentSessionId!;
+
+    await createOrRestoreSession(
+      storage,
+      sessionId,
+      wsId,
+      (payload.issue as any)?.id,
+      (payload.issue as any)?.identifier,
+      (payload.issue as any)?.title,
+      (payload.issue as any)?.url,
+    );
+
+    // v0: write the first AgentActivity(thought) back to Linear within the 10s budget.
+    if (isCreatedEvent) {
+      try {
+        await updateAgentSessionExternalUrls(env, wsId, sessionId, buildAgentSessionExternalUrls(origin, sessionId));
+      } catch (error) {
+        console.warn("invoke.created failed to update external urls", error);
+      }
+
+      // Agent 开始处理后，按 Linear 推荐尽快推进到首个 started 状态。
+      try {
+        await moveIssueToStartedStateIfNeeded(env, wsId, payload.issue);
+      } catch (error) {
+        console.warn("invoke.created failed to move issue to started state", error);
+      }
+
+      await createAgentActivity(env, wsId, {
+        agentSessionId: sessionId,
+        type: "thought",
+        content: {
+          body: initialThoughtBody,
+        },
+      });
+      clearStop(env, sessionId);
+    }
+  } else {
+    // 如果没有 session，清除 in-flight 标记
+    if (agentSessionId) {
+      clearInflightSession(agentSessionId);
+    }
+  }
+
+  let queuedRunId: string | null = null;
+  if (hasSession) {
+    const runPayload = {
+      prompt: firstThoughtPrompt,
+      context: {
+        eventType: payload.type,
+        workspaceId: payload.workspaceId,
+        agentSessionId: payload.agentSessionId,
+        promptContext: payload.promptContext,
+        promptContextText: extractPromptContextText(payload.promptContext),
+        latestUserMessage,
+        issue: payload.issue,
+        guidance: payload.guidance,
+        previousComments: payload.previousComments,
+        // 🆕 添加恢复的上下文信息
+        restoredContext: restoredContext?.exists ? {
+          timeSinceLastActivity: restoredContext.timeSinceLastActivity,
+          activityCount: restoredContext.sessionRecord?.activityCount,
+          lastActivityAt: restoredContext.sessionRecord?.lastActivityAt,
+        } : undefined,
+      },
+      api: {
+        baseUrl: origin,
+      },
+    };
+    const run = await storage.agentRuns.create({
+      traceId,
+      agentSessionId: payload.agentSessionId!,
+      workspaceId: payload.workspaceId!,
+      eventType: payload.type,
+      payloadJson: JSON.stringify(runPayload),
+    });
+    queuedRunId = run.id;
+  }
+
+  const body = InvokeResponseSchema.parse({
+    ok: true,
+    traceId,
+    reserved: {
+      receivedType: payload.type,
+      firstThoughtPrompt,
+      wroteThought: hasSession && isCreatedEvent,
+      queuedRunId,
+      initialThoughtBody: hasSession && isCreatedEvent ? initialThoughtBody : undefined,
+      externalStatusUrl: hasSession ? buildAgentSessionStatusUrl(origin, payload.agentSessionId!) : undefined,
+      restored: restoredContext?.exists ? true : undefined,
+      traceStore: {
+        wrote: true,
+        agentSessionId: payload.agentSessionId,
+        workspaceId: payload.workspaceId,
+      },
+    },
+  });
+
+  return json(body, { status: 200 });
+}
+
 export async function handleInvokeRequest(
   request: Request,
   env: Env,
@@ -197,191 +386,7 @@ export async function handleInvokeRequest(
     if (!payload.success) {
       return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
     }
-
-    const eventType = payload.data.type;
-    const agentSessionId = payload.data.agentSessionId;
-
-    // 去重：检查会话是否已在处理中
-    if (agentSessionId && isInflightSession(agentSessionId, eventType)) {
-      console.info(`dedup: skipping duplicate agent session ${agentSessionId.slice(0, 8)}... (event=${eventType})`);
-      return json({ status: "duplicate", reason: "session_inflight" }, { status: 200 });
-    }
-
-    const traceId = makeTraceId();
-
-    // 标记会话为 in-flight
-    if (agentSessionId) {
-      markInflightSession(agentSessionId, eventType);
-    }
-
-    const latestUserMessage = extractAgentActivityBody(payload.data.agentActivity);
-
-    const origin = new URL(request.url).origin;
-
-    // 🆕 检查是否存在持久化会话（即使几天/几周前）
-    let restoredContext = null;
-    if (agentSessionId && payload.data.workspaceId) {
-      restoredContext = await restoreSessionContext(env, payload.data.workspaceId, agentSessionId, storage);
-    }
-
-    const promptContext: PromptContext = {
-      issue: payload.data.issue as any,
-      guidance: typeof payload.data.guidance === "string" ? payload.data.guidance : undefined,
-      promptContext: payload.data.promptContext,
-      latestUserMessage,
-      eventType: payload.data.type,
-      workspaceId: payload.data.workspaceId ?? undefined,
-      agentSessionId: payload.data.agentSessionId ?? undefined,
-      traceId,
-    };
-
-    // 如果存在历史会话，添加上下文摘要
-    if (restoredContext?.exists && restoredContext.summaryPrompt) {
-      promptContext.restoredContext = restoredContext.summaryPrompt;
-
-      // 更新会话的最后活动时间
-      if (restoredContext.sessionRecord) {
-        await storage.sessions.updateLastActivity(restoredContext.sessionRecord.id);
-      }
-    }
-
-    const firstThoughtPrompt = buildEnrichedPrompt(promptContext, origin);
-
-    // WS-37: write trace -> agentSessionId/workspaceId map for later correlation.
-    await storage.trace.set(traceId, {
-      agentSessionId: payload.data.agentSessionId ?? undefined,
-      workspaceId: payload.data.workspaceId ?? undefined,
-      eventType: payload.data.type,
-      createdAt: new Date().toISOString(),
-    });
-
-    const hasSession = Boolean(payload.data.workspaceId && payload.data.agentSessionId);
-    const isCreatedEvent = payload.data.type.includes("created");
-    const initialThoughtBody = buildInitialThoughtBody(payload.data.type, latestUserMessage);
-
-    if (hasSession && isCreatedEvent) {
-      const existingSession = await storage.sessions.findByAgentSessionId(payload.data.agentSessionId!);
-      if (existingSession) {
-        return json({
-          ok: true,
-          traceId,
-          reserved: {
-            receivedType: payload.data.type,
-            duplicateCreated: true,
-            wroteThought: false,
-            queuedRunId: null,
-            traceStore: {
-              wrote: true,
-              agentSessionId: payload.data.agentSessionId,
-              workspaceId: payload.data.workspaceId,
-            },
-          },
-        }, { status: 200 });
-      }
-    }
-
-    // 🆕 创建或恢复会话（持久化）
-    if (hasSession) {
-      const wsId = payload.data.workspaceId!;
-      const sessionId = payload.data.agentSessionId!;
-      const externalStatusUrl = buildAgentSessionStatusUrl(origin, sessionId);
-
-      await createOrRestoreSession(
-        storage,
-        sessionId,
-        wsId,
-        (payload.data.issue as any)?.id,
-        (payload.data.issue as any)?.identifier,
-        (payload.data.issue as any)?.title,
-        (payload.data.issue as any)?.url,
-      );
-
-      // v0: write the first AgentActivity(thought) back to Linear within the 10s budget.
-      if (isCreatedEvent) {
-        try {
-          await updateAgentSessionExternalUrls(env, wsId, sessionId, buildAgentSessionExternalUrls(origin, sessionId));
-        } catch (error) {
-          console.warn("invoke.created failed to update external urls", error);
-        }
-
-        // Agent 开始处理后，按 Linear 推荐尽快推进到首个 started 状态。
-        try {
-          await moveIssueToStartedStateIfNeeded(env, wsId, payload.data.issue);
-        } catch (error) {
-          console.warn("invoke.created failed to move issue to started state", error);
-        }
-
-        await createAgentActivity(env, wsId, {
-          agentSessionId: sessionId,
-          type: "thought",
-          content: {
-            body: initialThoughtBody,
-          },
-        });
-        clearStop(env, sessionId);
-      }
-    } else {
-      // 如果没有 session，清除 in-flight 标记
-      if (agentSessionId) {
-        clearInflightSession(agentSessionId);
-      }
-    }
-
-    let queuedRunId: string | null = null;
-    if (hasSession) {
-      const runPayload = {
-        prompt: firstThoughtPrompt,
-        context: {
-          eventType: payload.data.type,
-          workspaceId: payload.data.workspaceId,
-          agentSessionId: payload.data.agentSessionId,
-          promptContext: payload.data.promptContext,
-          promptContextText: extractPromptContextText(payload.data.promptContext),
-          latestUserMessage,
-          issue: payload.data.issue,
-          guidance: payload.data.guidance,
-          previousComments: payload.data.previousComments,
-          // 🆕 添加恢复的上下文信息
-          restoredContext: restoredContext?.exists ? {
-            timeSinceLastActivity: restoredContext.timeSinceLastActivity,
-            activityCount: restoredContext.sessionRecord?.activityCount,
-            lastActivityAt: restoredContext.sessionRecord?.lastActivityAt,
-          } : undefined,
-        },
-        api: {
-          baseUrl: origin,
-        },
-      };
-      const run = await storage.agentRuns.create({
-        traceId,
-        agentSessionId: payload.data.agentSessionId!,
-        workspaceId: payload.data.workspaceId!,
-        eventType: payload.data.type,
-        payloadJson: JSON.stringify(runPayload),
-      });
-      queuedRunId = run.id;
-    }
-
-    const body = InvokeResponseSchema.parse({
-      ok: true,
-      traceId,
-      reserved: {
-        receivedType: payload.data.type,
-        firstThoughtPrompt,
-        wroteThought: hasSession && isCreatedEvent,
-        queuedRunId,
-        initialThoughtBody: hasSession && isCreatedEvent ? initialThoughtBody : undefined,
-        externalStatusUrl: hasSession ? buildAgentSessionStatusUrl(origin, payload.data.agentSessionId!) : undefined,
-        restored: restoredContext?.exists ? true : undefined,
-        traceStore: {
-          wrote: true,
-          agentSessionId: payload.data.agentSessionId,
-          workspaceId: payload.data.workspaceId,
-        },
-      },
-    });
-
-    return json(body, { status: 200 });
+    return handleAgentSessionInvokePayload(payload.data, env, storage, new URL(request.url).origin);
   }
 
   // Dev-only: replay a simulated Linear AgentSessionEvent.created through the SAME pipeline.
