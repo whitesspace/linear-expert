@@ -1,7 +1,45 @@
 import type { Env } from "../env";
 import { withWorkspaceAccessToken } from "./client";
 
-export type AgentActivityKind = "thought" | "action" | "response" | "error" | "elicitation";
+export type AgentActivityKind =
+  | "thought"
+  | "action"
+  | "response"
+  | "error"
+  | "elicitation"
+  | "plan"
+  | "progress";
+
+export interface PlanStep {
+  content: string;
+  status: "pending" | "inProgress" | "completed" | "canceled";
+}
+
+export type AgentActivityContentWithSession = {
+  agentSessionId?: string;
+  type: Exclude<AgentActivityKind, "plan" | "progress">;
+  content: any;
+  ephemeral?: boolean;
+};
+
+export type AgentActivityContent =
+  | { type: "thought"; body: string; ephemeral?: boolean; agentSessionId?: string }
+  | {
+      type: "action";
+      agentSessionId?: string;
+      activityAction: string;
+      parameter?: string;
+      result?: string;
+    }
+  | { type: "response"; agentSessionId?: string; body: string }
+  | { type: "error"; agentSessionId?: string; body: string }
+  | {
+      type: "elicitation";
+      agentSessionId?: string;
+      body: string;
+      signal?: string;
+      signalMeta?: Record<string, unknown>;
+    };
 
 export type AgentSessionCreateResult = {
   success: boolean;
@@ -11,19 +49,18 @@ export type AgentSessionCreateResult = {
 export async function createAgentActivity(
   env: Env,
   workspaceId: string,
-  input: {
-    agentSessionId: string;
-    type: AgentActivityKind;
-    content: Record<string, unknown>;
-    ephemeral?: boolean;
-  },
+  input: AgentActivityContentWithSession,
 ) {
   return withWorkspaceAccessToken<{ success: boolean; activityId: string | null }>(env, workspaceId, async (accessToken: string) => {
     const { createLinearSdkClient } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
 
+    // plan 和 progress 类型不传 agentSessionId，其他类型需要
+    const shouldOmitSessionId = input.type === "plan" || input.type === "progress";
+    const agentSessionId = shouldOmitSessionId ? undefined : (input.agentSessionId ? String(input.agentSessionId) : undefined);
+
     const payload: any = await client.createAgentActivity({
-      agentSessionId: input.agentSessionId,
+      agentSessionId,
       content: { type: input.type, ...input.content },
       ephemeral: input.ephemeral ?? false,
     });
