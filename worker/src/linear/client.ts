@@ -99,7 +99,12 @@ export async function postComment(env: Env, workspaceId: string, issueId: string
   return withWorkspaceAccessToken<CommentResult>(env, workspaceId, async (accessToken) => {
     return withSdkClient(accessToken, async (client) => {
       const { sdkRequest } = await import("./sdk");
-      const data = await sdkRequest<any>(
+      type SdkCommentCreatePayload = {
+        success: boolean;
+        comment?: { id: string; body: string } | null;
+      };
+
+      const data = await sdkRequest<{ commentCreate: SdkCommentCreatePayload }>(
         client,
         `mutation($issueId: String!, $body: String!) {
           commentCreate(input: { issueId: $issueId, body: $body }) {
@@ -109,11 +114,12 @@ export async function postComment(env: Env, workspaceId: string, issueId: string
         }`,
         { issueId, body },
       );
+      const payload = data.commentCreate;
       return {
-        success: Boolean(data.commentCreate?.success),
+        success: Boolean(payload?.success),
         comment: {
-          id: data.commentCreate?.comment?.id ?? "",
-          body: data.commentCreate?.comment?.body ?? body,
+          id: payload?.comment?.id ?? "",
+          body: payload?.comment?.body ?? body,
         },
       };
     });
