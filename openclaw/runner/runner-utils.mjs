@@ -12,8 +12,28 @@ export function extractFirstJson(text) {
   for (const start of startIndexes) {
     const first = source[start];
     const stack = [first === "{" ? "}" : "]"];
+    let inString = false;
+    let escaped = false;
     for (let i = start + 1; i < source.length; i += 1) {
       const ch = source[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (ch === "\\") {
+          escaped = true;
+          continue;
+        }
+        if (ch === "\"") {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch === "\"") {
+        inString = true;
+        continue;
+      }
       if (ch === "{") stack.push("}");
       if (ch === "[") stack.push("]");
       if (ch === "}" || ch === "]") {

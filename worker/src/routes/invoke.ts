@@ -3,7 +3,7 @@ import type { Env } from "../env";
 import { json } from "../lib/http";
 import { assertInternalSecret } from "../auth/internal";
 import type { StorageAdapter } from "../storage/types";
-import { createAgentActivity } from "../linear/agent";
+import { buildAgentSessionExternalUrls, buildAgentSessionStatusUrl, createAgentActivity, updateAgentSessionExternalUrls } from "../linear/agent";
 import { getIssueWorkflowState, listTeamStates, transitionIssueState } from "../linear/client";
 import { clearStop, requestStop } from "../storage/stop";
 import { buildEnrichedPrompt, type PromptContext } from "../linear/prompt-builder";
@@ -70,6 +70,16 @@ function extractPromptContextText(promptContext: unknown): string | undefined {
 
 function extractAgentActivityBody(agentActivity: unknown): string | undefined {
   return pickString(agentActivity, ["body"]);
+}
+
+function buildInitialThoughtBody(eventType: string, latestUserMessage?: string): string {
+  if (latestUserMessage) {
+    return "已收到你的消息，我正在拉取上下文并分析下一步，通常需要 30-90 秒。";
+  }
+  if (eventType.includes("created")) {
+    return "已收到任务，我正在拉取 issue 上下文并分析下一步，通常需要 30-90 秒。";
+  }
+  return "我正在继续处理当前 session，通常需要 30-90 秒。";
 }
 
 function normalizeStateType(value: string | undefined): string | undefined {
@@ -247,11 +257,34 @@ export async function handleInvokeRequest(
 
     const hasSession = Boolean(payload.data.workspaceId && payload.data.agentSessionId);
     const isCreatedEvent = payload.data.type.includes("created");
+    const initialThoughtBody = buildInitialThoughtBody(payload.data.type, latestUserMessage);
+
+    if (hasSession && isCreatedEvent) {
+      const existingSession = await storage.sessions.findByAgentSessionId(payload.data.agentSessionId!);
+      if (existingSession) {
+        return json({
+          ok: true,
+          traceId,
+          reserved: {
+            receivedType: payload.data.type,
+            duplicateCreated: true,
+            wroteThought: false,
+            queuedRunId: null,
+            traceStore: {
+              wrote: true,
+              agentSessionId: payload.data.agentSessionId,
+              workspaceId: payload.data.workspaceId,
+            },
+          },
+        }, { status: 200 });
+      }
+    }
 
     // 🆕 创建或恢复会话（持久化）
     if (hasSession) {
       const wsId = payload.data.workspaceId!;
       const sessionId = payload.data.agentSessionId!;
+      const externalStatusUrl = buildAgentSessionStatusUrl(origin, sessionId);
 
       await createOrRestoreSession(
         storage,
@@ -265,6 +298,12 @@ export async function handleInvokeRequest(
 
       // v0: write the first AgentActivity(thought) back to Linear within the 10s budget.
       if (isCreatedEvent) {
+        try {
+          await updateAgentSessionExternalUrls(env, wsId, sessionId, buildAgentSessionExternalUrls(origin, sessionId));
+        } catch (error) {
+          console.warn("invoke.created failed to update external urls", error);
+        }
+
         // Agent 开始处理后，按 Linear 推荐尽快推进到首个 started 状态。
         try {
           await moveIssueToStartedStateIfNeeded(env, wsId, payload.data.issue);
@@ -276,7 +315,7 @@ export async function handleInvokeRequest(
           agentSessionId: sessionId,
           type: "thought",
           content: {
-            body: firstThoughtPrompt,
+            body: initialThoughtBody,
           },
         });
         clearStop(env, sessionId);
@@ -331,6 +370,8 @@ export async function handleInvokeRequest(
         firstThoughtPrompt,
         wroteThought: hasSession && isCreatedEvent,
         queuedRunId,
+        initialThoughtBody: hasSession && isCreatedEvent ? initialThoughtBody : undefined,
+        externalStatusUrl: hasSession ? buildAgentSessionStatusUrl(origin, payload.data.agentSessionId!) : undefined,
         restored: restoredContext?.exists ? true : undefined,
         traceStore: {
           wrote: true,

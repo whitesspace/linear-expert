@@ -68,4 +68,11 @@ export interface OAuthTokenRecord {
   expiresAt: string;
   scopes: string[];
   actorMode: "app";
+  installationIdentity?: {
+    viewerId: string;
+    viewerName?: string | null;
+    organizationId?: string | null;
+    organizationName?: string | null;
+    organizationUrlKey?: string | null;
+  };
 }

@@ -38,6 +38,7 @@ function parseArgs(args) {
     else if (a === '--body') out.body = args[++i];
     else if (a === '--assignee') out.assignee = args[++i];
     else if (a === '--url') out.url = args[++i];
+    else if (a === '--color') out.color = args[++i];
     else if (a === '--label') { (out.labels ??= []).push(args[++i]); }
     else if (a === '--relation') out.relation = args[++i];
     else if (a === '--target') out.target = args[++i];
@@ -46,6 +47,8 @@ function parseArgs(args) {
     else if (a === '--exclude-done') out.excludeDone = true;
     else if (a === '--exclude-cancelled') out.excludeCancelled = true;
     else if (a === '--state-name') out.stateName = args[++i];
+    else if (a === '--starts-at') out.startsAt = args[++i];
+    else if (a === '--ends-at') out.endsAt = args[++i];
     else {
 
       (out.unknown ??= []).push(a);
@@ -86,6 +89,27 @@ function help() {
     '  project create --team WS --title <name> [--description <md>]',
     '  project update --team WS --project <projectId> [--title <name>] [--description <md>]',
     '  project delete --team WS --project <projectId>',
+    '',
+    '  triage list --team WS [--state <StateName>] [--limit 25] [--exclude-done] [--exclude-cancelled]',
+    '',
+    '  initiatives list --team WS [--limit 25]',
+    '  initiatives get --team WS --id <initiativeId>',
+    '  initiatives create --team WS --title <name> [--description <md>] [--status <status>]',
+    '  initiatives update --team WS --id <initiativeId> [--title <name>] [--description <md>] [--status <status>]',
+    '  initiatives archive --team WS --id <initiativeId>',
+    '',
+    '  cycles list --team WS [--limit 25]',
+    '  cycles get --team WS --id <cycleId>',
+    '  cycles create --team WS [--title <name>] --starts-at <yyyy-mm-dd> --ends-at <yyyy-mm-dd>',
+    '  cycles update --team WS --id <cycleId> [--title <name>] [--starts-at <yyyy-mm-dd>] [--ends-at <yyyy-mm-dd>]',
+    '  cycles archive --team WS --id <cycleId>',
+    '',
+    '  labels list --team WS [--limit 25]',
+    '  labels get --team WS --id <labelId>',
+    '  labels create --team WS --title <name> [--description <md>] [--color <hex>]',
+    '  labels update --team WS --id <labelId> [--title <name>] [--description <md>] [--color <hex>]',
+    '  labels retire --team WS --id <labelId>',
+    '  labels restore --team WS --id <labelId>',
     '',
     '  team states --team WS',
     '  issue children --team WS --issue <id|WS-123> [--limit 50]',
@@ -456,6 +480,10 @@ async function main() {
 
     if (cmd === 'cycles') {
       if (sub === 'list') return await cmdCyclesList(flags);
+      if (sub === 'get') return await cmdCyclesGet(flags);
+      if (sub === 'create') return await cmdCyclesCreate(flags);
+      if (sub === 'update') return await cmdCyclesUpdate(flags);
+      if (sub === 'archive') return await cmdCyclesArchive(flags);
     }
 
     if (cmd === 'labels') {
@@ -576,6 +604,68 @@ async function cmdCyclesList(flags) {
   const items = r?.result?.cycles ?? [];
   if (flags.plain) return outPlain(items.map((c) => `${c.id} ${c.number ?? ''} ${c.name ?? ''}`.trim()));
   return outPlain([`count=${items.length}`, ...items.map((c) => `- #${c.number ?? ''} ${c.name ?? ''}`.trim())]);
+}
+
+async function cmdCyclesGet(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.id) fail('--id required', 2);
+  const r = await httpJson({ baseUrl, path: '/internal/linear/cycles/get', secret, body: { workspaceId, id: flags.id }, verbose: flags.verbose });
+  if (flags.json) return outJson(r);
+  const c = r?.result?.cycle;
+  return outPlain(c ? [`${c.name ?? ''}`, `startsAt=${c.startsAt ?? ''}`, `endsAt=${c.endsAt ?? ''}`] : ['null']);
+}
+
+async function cmdCyclesCreate(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId, teamId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.startsAt || !flags.endsAt) fail('--starts-at and --ends-at required', 2);
+  const body = {
+    workspaceId,
+    teamId,
+    startsAt: flags.startsAt,
+    endsAt: flags.endsAt,
+    name: flags.title ?? null,
+  };
+  const r = await httpJson({ baseUrl, path: '/internal/linear/cycles/create', secret, body, verbose: flags.verbose });
+  if (flags.json) return outJson(r);
+  return outPlain([JSON.stringify(r)]);
+}
+
+async function cmdCyclesUpdate(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.id) fail('--id required', 2);
+  if (flags.title === undefined && flags.startsAt === undefined && flags.endsAt === undefined) {
+    fail('cycles update requires at least one of --title, --starts-at, --ends-at', 2);
+  }
+  const body = {
+    workspaceId,
+    id: flags.id,
+    startsAt: flags.startsAt,
+    endsAt: flags.endsAt,
+    name: flags.title,
+  };
+  const r = await httpJson({ baseUrl, path: '/internal/linear/cycles/update', secret, body, verbose: flags.verbose });
+  if (flags.json) return outJson(r);
+  return outPlain([JSON.stringify(r)]);
+}
+
+async function cmdCyclesArchive(flags) {
+  const baseUrl = env.LEC_BASE_URL || 'https://linear-expert.placeapp.workers.dev';
+  const secret = env.OPENCLAW_INTERNAL_SECRET;
+  const teamKey = flags.team || 'WS';
+  const { workspaceId } = await resolveTeam(teamKey, flags.workspace, flags.verbose);
+  if (!flags.id) fail('--id required', 2);
+  const r = await httpJson({ baseUrl, path: '/internal/linear/cycles/archive', secret, body: { workspaceId, id: flags.id }, verbose: flags.verbose });
+  if (flags.json) return outJson(r);
+  return outPlain([JSON.stringify(r)]);
 }
 
 async function cmdLabelsList(flags) {

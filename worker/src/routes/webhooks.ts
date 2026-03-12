@@ -1,9 +1,73 @@
 import type { Env } from "../env";
 import { json } from "../lib/http";
-import { createAgentSessionOnComment } from "../linear/agent";
+import { buildAgentSessionExternalUrls, createAgentSessionOnComment, createAgentSessionOnIssue, updateAgentSessionExternalUrls } from "../linear/agent";
+import { getInstallationIdentityForWorkspace } from "../linear/client";
 import { parseLinearWebhook } from "../linear/parser";
 import { verifyLinearSignature } from "../linear/signature";
 import type { StorageAdapter } from "../storage/types";
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function getChangedKeys(payload: unknown): string[] {
+  const updatedFrom =
+    (payload as Record<string, unknown> | null)?.updatedFrom ??
+    ((payload as Record<string, unknown> | null)?.data as Record<string, unknown> | undefined)?.updatedFrom;
+  if (!updatedFrom || typeof updatedFrom !== "object") return [];
+  return Object.keys(updatedFrom);
+}
+
+function buildSyntheticCreatedPayload(input: {
+  agentSessionId: string;
+  workspaceId: string;
+  issue?: unknown;
+  promptContext?: unknown;
+  latestUserMessage?: string;
+  guidance?: unknown;
+  previousComments?: unknown;
+}) {
+  return {
+    type: "AgentSessionEvent.created",
+    agentSessionId: input.agentSessionId,
+    workspaceId: input.workspaceId,
+    issue: input.issue,
+    promptContext: input.promptContext,
+    guidance: input.guidance,
+    agentActivity: input.latestUserMessage ? { body: input.latestUserMessage } : undefined,
+    previousComments: input.previousComments,
+  };
+}
+
+async function invokeAgentSession(
+  request: Request,
+  env: Env,
+  payload: Record<string, unknown>,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const invokeUrl = `${url.origin}/internal/invoke/agent-session`;
+  try {
+    const resp = await fetch(invokeUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${env.OPENCLAW_INTERNAL_SECRET}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!resp.ok) {
+      const message = (await resp.text()).slice(0, 800);
+      console.error("agent_session invoke failed", { status: resp.status, message });
+      return json({ error: "invoke_failed", invokeStatus: resp.status }, { status: 502 });
+    }
+
+    return json({ status: "accepted", kind: "agentSession", invokeStatus: resp.status }, { status: 200 });
+  } catch (error) {
+    console.error("agent_session invoke transport error", error);
+    return json({ error: "invoke_failed" }, { status: 502 });
+  }
+}
 
 export async function handleLinearWebhook(request: Request, env: Env, storage: StorageAdapter): Promise<Response> {
   if (!env.LINEAR_WEBHOOK_SECRET) {
@@ -61,30 +125,7 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
       agentActivity,
       previousComments: (parsed as any)?.previousComments ?? data?.previousComments,
     };
-
-    const url = new URL(request.url);
-    const invokeUrl = `${url.origin}/internal/invoke/agent-session`;
-    try {
-      const resp = await fetch(invokeUrl, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${env.OPENCLAW_INTERNAL_SECRET}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(invokePayload),
-      });
-
-      if (!resp.ok) {
-        const message = (await resp.text()).slice(0, 800);
-        console.error("agent_session invoke failed", { status: resp.status, message });
-        return json({ error: "invoke_failed", invokeStatus: resp.status }, { status: 502 });
-      }
-
-      return json({ status: "accepted", kind: "agentSession", invokeStatus: resp.status }, { status: 200 });
-    } catch (error) {
-      console.error("agent_session invoke transport error", error);
-      return json({ error: "invoke_failed" }, { status: 502 });
-    }
+    return invokeAgentSession(request, env, invokePayload);
   }
 
   // WS-37: Comment fallback invocation (C):
@@ -103,7 +144,29 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
 
       try {
         const session = await createAgentSessionOnComment(env, workspaceId, data.id);
-        return json({ status: "accepted", kind: "comment_fallback", session }, { status: 200 });
+        if (!session.agentSessionId) {
+          return json({ error: "comment_fallback_failed", kind: "comment_fallback", message: "missing agentSessionId" }, { status: 502 });
+        }
+        await updateAgentSessionExternalUrls(
+          env,
+          workspaceId,
+          session.agentSessionId,
+          buildAgentSessionExternalUrls(new URL(request.url).origin, session.agentSessionId),
+        );
+
+        const invokeResponse = await invokeAgentSession(request, env, buildSyntheticCreatedPayload({
+          agentSessionId: session.agentSessionId,
+          workspaceId,
+          issue: data.issue,
+          promptContext: bodyText,
+          latestUserMessage: bodyText,
+          previousComments: [],
+        }));
+        if (!invokeResponse.ok) {
+          return invokeResponse;
+        }
+
+        return json({ status: "accepted", kind: "comment_fallback", session, invoked: true }, { status: 200 });
       } catch (error) {
         const message = String(error ?? "");
         if (message.toLowerCase().includes("already has an agent session")) {
@@ -111,6 +174,52 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
         }
         console.error("comment_fallback create session error", error);
         return json({ error: "comment_fallback_failed", kind: "comment_fallback", message }, { status: 502 });
+      }
+    }
+  }
+
+  if (eventType === "Issue" && String((parsed as any)?.action ?? "").includes("update")) {
+    const data = (parsed as any)?.data ?? {};
+    const workspaceId = (parsed as any)?.organizationId ?? data?.organizationId;
+    const changedKeys = getChangedKeys(parsed);
+    const assignmentChanged = changedKeys.includes("delegateId") || changedKeys.includes("assigneeId");
+    const candidateUserId = readString(data?.delegateId) ?? readString(data?.assigneeId);
+
+    if (workspaceId && data?.id && assignmentChanged && candidateUserId) {
+      try {
+        const identity = await getInstallationIdentityForWorkspace(env, workspaceId);
+        if (identity?.viewerId && candidateUserId === identity.viewerId) {
+          const session = await createAgentSessionOnIssue(env, workspaceId, data.id);
+          if (!session.agentSessionId) {
+            return json({ error: "issue_assignment_session_failed", kind: "issue_assignment", message: "missing agentSessionId" }, { status: 502 });
+          }
+          await updateAgentSessionExternalUrls(
+            env,
+            workspaceId,
+            session.agentSessionId,
+            buildAgentSessionExternalUrls(new URL(request.url).origin, session.agentSessionId),
+          );
+
+          const invokeResponse = await invokeAgentSession(request, env, buildSyntheticCreatedPayload({
+            agentSessionId: session.agentSessionId,
+            workspaceId,
+            issue: data,
+            promptContext: `Issue was assigned to the agent. Review the issue and respond in this session.`,
+            previousComments: [],
+          }));
+          if (!invokeResponse.ok) {
+            return invokeResponse;
+          }
+
+          return json({ status: "accepted", kind: "issue_assignment", session, invoked: true }, { status: 200 });
+        }
+      } catch (error) {
+        const message = String(error ?? "");
+        if (message.toLowerCase().includes("already has an agent session")) {
+          return json({ status: "accepted", kind: "issue_assignment", reason: "already_has_session" }, { status: 200 });
+        }
+        console.error("issue_assignment create session error", error);
+        return json({ error: "issue_assignment_failed", kind: "issue_assignment", message }, { status: 502 });
       }
     }
   }

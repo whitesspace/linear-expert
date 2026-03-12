@@ -13,9 +13,12 @@ const tests = [
   'test/smoke.contracts.test.ts',
   'test/webhooks.agent-session.test.ts',
   'test/invoke.started-state.test.ts',
+  'test/agent-session-status-page.test.ts',
   'test/agent-runs.routes.test.ts',
   'test/task-results.routes.test.ts',
   'test/openclaw.runner-utils.test.ts',
+  'test/openclaw.runner-core.test.ts',
+  'test/lec.cli.test.ts',
   'test/invoke-replay.test.mjs'
 ];
 
