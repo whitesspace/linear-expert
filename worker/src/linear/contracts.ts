@@ -27,9 +27,11 @@ export const IssueUpdateInputSchema = IssueUpdateFieldsSchema.refine((value) => 
 
 export type UpdateIssueInput = z.infer<typeof IssueUpdateInputSchema>;
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const AssignIssueInputSchema = z.object({
   issueId: z.string().min(1),
-  assigneeId: z.string().min(1),
+  assigneeId: z.string().regex(UUID_REGEX, "assigneeId must be a UUID"),
 });
 
 export type AssignIssueInput = z.infer<typeof AssignIssueInputSchema>;
