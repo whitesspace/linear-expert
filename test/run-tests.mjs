@@ -12,6 +12,7 @@ const tests = [
   'test/oauth.routes.test.ts',
   'test/smoke.contracts.test.ts',
   'test/webhooks.agent-session.test.ts',
+  'test/invoke.started-state.test.ts',
   'test/agent-runs.routes.test.ts',
   'test/task-results.routes.test.ts',
   'test/openclaw.runner-utils.test.ts',

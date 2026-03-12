@@ -4,6 +4,7 @@ import { json } from "../lib/http";
 import { assertInternalSecret } from "../auth/internal";
 import type { StorageAdapter } from "../storage/types";
 import { createAgentActivity } from "../linear/agent";
+import { getIssueWorkflowState, listTeamStates, transitionIssueState } from "../linear/client";
 import { clearStop, requestStop } from "../storage/stop";
 import { buildEnrichedPrompt, type PromptContext } from "../linear/prompt-builder";
 import {
@@ -69,6 +70,51 @@ function extractPromptContextText(promptContext: unknown): string | undefined {
 
 function extractAgentActivityBody(agentActivity: unknown): string | undefined {
   return pickString(agentActivity, ["body"]);
+}
+
+function normalizeStateType(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized || undefined;
+}
+
+function isTerminalOrStartedState(stateType: string | undefined): boolean {
+  return stateType === "started" || stateType === "completed" || stateType === "canceled" || stateType === "cancelled";
+}
+
+async function moveIssueToStartedStateIfNeeded(
+  env: Env,
+  workspaceId: string,
+  issue: unknown,
+): Promise<void> {
+  const issueId = pickString(issue, ["id"]);
+  if (!issueId) return;
+
+  let teamId = pickString(issue, ["team", "id"]);
+  let stateType = normalizeStateType(pickString(issue, ["state", "type"]));
+
+  if (!teamId || !stateType) {
+    const workflow = await getIssueWorkflowState(env, workspaceId, issueId);
+    teamId = teamId ?? workflow.issue?.team?.id ?? undefined;
+    stateType = stateType ?? normalizeStateType(workflow.issue?.state?.type ?? undefined);
+  }
+
+  if (isTerminalOrStartedState(stateType) || !teamId) {
+    return;
+  }
+
+  const states = await listTeamStates(env, workspaceId, teamId);
+  const firstStartedState = [...states.states]
+    .filter((state) => normalizeStateType(state.type ?? undefined) === "started")
+    .sort((left, right) => (left.position ?? Number.MAX_SAFE_INTEGER) - (right.position ?? Number.MAX_SAFE_INTEGER))[0];
+
+  if (!firstStartedState?.id) {
+    return;
+  }
+
+  await transitionIssueState(env, workspaceId, {
+    issueId,
+    stateId: firstStartedState.id,
+  });
 }
 
 const InvokeSignalSchema = z.object({
@@ -219,6 +265,13 @@ export async function handleInvokeRequest(
 
       // v0: write the first AgentActivity(thought) back to Linear within the 10s budget.
       if (isCreatedEvent) {
+        // Agent 开始处理后，按 Linear 推荐尽快推进到首个 started 状态。
+        try {
+          await moveIssueToStartedStateIfNeeded(env, wsId, payload.data.issue);
+        } catch (error) {
+          console.warn("invoke.created failed to move issue to started state", error);
+        }
+
         await createAgentActivity(env, wsId, {
           agentSessionId: sessionId,
           type: "thought",

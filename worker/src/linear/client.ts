@@ -283,6 +283,7 @@ export interface IssueStateResult {
   id: string;
   name: string;
   type?: string | null;
+  position?: number | null;
 }
 
 export interface TeamStatesResult {
@@ -298,13 +299,46 @@ export async function listTeamStates(env: Env, workspaceId: string, teamId: stri
         client,
         `query($teamId: String!) {
           team(id: $teamId) {
-            states { nodes { id name type } }
+            states { nodes { id name type position } }
           }
         }`,
         { teamId },
       );
 
       return { success: true, states: data.team?.states?.nodes ?? [] };
+    });
+  });
+}
+
+export interface IssueWorkflowStateResult {
+  success: boolean;
+  issue: {
+    id: string;
+    team: { id: string } | null;
+    state: { id: string; name: string; type?: string | null } | null;
+  } | null;
+}
+
+export async function getIssueWorkflowState(env: Env, workspaceId: string, issueId: string) {
+  return withWorkspaceAccessToken<IssueWorkflowStateResult>(env, workspaceId, async (accessToken) => {
+    return withSdkClient(accessToken, async (client) => {
+      const { sdkRequest } = await import("./sdk");
+      const data = await sdkRequest<any>(
+        client,
+        `query($id: ID!) {
+          issue(id: $id) {
+            id
+            team { id }
+            state { id name type }
+          }
+        }`,
+        { id: issueId },
+      );
+
+      return {
+        success: true,
+        issue: data.issue ?? null,
+      };
     });
   });
 }

@@ -132,6 +132,7 @@ linear-expert/
 #### Invocation (WS-37)
 - `POST /internal/invoke/agent-session`
   - 接收 Linear AgentSessionEvent.*（例如 `AgentSessionEvent.created`）
+  - 对 `AgentSessionEvent.created`：会先 best-effort 将 issue 推进到团队的第一个 `started` 状态，再写首个 `thought`
   - 返回：`{ ok: true, traceId, reserved }`
     - `traceId`：本次 invocation 的相关性 ID（并写入 traceStore 供后续关联）
     - `reserved.firstThoughtPrompt`：根据 `promptContext/issue/guidance` 派生的 first-thought prompt（**不执行**任何 Linear actions）
