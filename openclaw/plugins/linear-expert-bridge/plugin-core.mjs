@@ -284,6 +284,7 @@ export function createBridgeState() {
     processedRuns: 0,
     activeRuns: new Map(),
     runControllers: new Map(),
+    tickInFlight: null,
     timer: null,
   };
 }
@@ -517,43 +518,39 @@ function registerGatewayMethod(api, name, handler) {
   return false;
 }
 
-function registerHttpHandler(api, state, config) {
-  const register = api.registerHttpRoute || api.registerGatewayHttpHandler || api.registerHttpHandler;
-  if (typeof register !== "function") {
-    return false;
-  }
-
-  register({
-    method: "GET",
-    path: "/plugins/linear-expert-bridge/status",
-    handler() {
-      const payload = snapshotBridgeState(state, config);
-      return {
-        status: 200,
-        headers: { "content-type": "application/json; charset=utf-8" },
-        body: JSON.stringify(payload),
-      };
-    },
-  });
-  return true;
-}
-
 export function registerBridgePlugin(api, options = {}) {
   const rawConfig = options.config ?? resolvePluginConfig(api);
   const config = normalizeConfig(rawConfig);
   const state = options.state ?? createBridgeState();
   const logger = api?.logger ?? console;
 
-  const tick = async () => {
+  const tick = async ({ surfaceErrors = false } = {}) => {
+    if (state.tickInFlight) {
+      return state.tickInFlight;
+    }
+
+    state.tickInFlight = (async () => {
+      try {
+        await pollOnce(config, state, {
+          ...(options.deps ?? {}),
+          api,
+        });
+        return { ok: true };
+      } catch (error) {
+        state.lastError = errorStack(error);
+        logger.error?.("linear-expert-bridge poll failed", error);
+        if (surfaceErrors) {
+          throw error;
+        }
+        return { ok: false, error };
+      } finally {
+        state.tickInFlight = null;
+      }
+    })();
+
     try {
-      await pollOnce(config, state, {
-        ...(options.deps ?? {}),
-        api,
-      });
-    } catch (error) {
-      state.lastError = errorStack(error);
-      logger.error?.("linear-expert-bridge poll failed", error);
-      throw error;
+      return await state.tickInFlight;
+    } finally {
     }
   };
 
@@ -564,10 +561,10 @@ export function registerBridgePlugin(api, options = {}) {
         state.running = true;
         state.startedAt = nowIso();
         if (config.runOnStartup) {
-          void tick();
+          void tick({ surfaceErrors: false });
         }
         state.timer = setInterval(() => {
-          void tick();
+          void tick({ surfaceErrors: false });
         }, config.pollIntervalMs);
       },
       stop() {
@@ -588,7 +585,7 @@ export function registerBridgePlugin(api, options = {}) {
 
   registerGatewayMethod(api, `${PLUGIN_ID}.runOnce`, async ({ respond }) => {
     try {
-      await tick();
+      await tick({ surfaceErrors: true });
       respond(true, snapshotBridgeState(state, config));
     } catch (error) {
       respond(false, { ok: false, error: errorMessage(error) });
@@ -608,8 +605,6 @@ export function registerBridgePlugin(api, options = {}) {
       : { ok: false, error: "run_not_active", runId });
   });
 
-  registerHttpHandler(api, state, config);
-
   if (typeof api.registerCli === "function") {
     api.registerCli(({ program }) => {
       const cmd = program.command("linear-expert-bridge");
@@ -617,7 +612,7 @@ export function registerBridgePlugin(api, options = {}) {
         console.log(JSON.stringify(snapshotBridgeState(state, config), null, 2));
       });
       cmd.command("run-once").action(async () => {
-        await tick();
+        await tick({ surfaceErrors: true });
         console.log(JSON.stringify(snapshotBridgeState(state, config), null, 2));
       });
       cmd.command("stop").argument("<runId>").action((runId) => {

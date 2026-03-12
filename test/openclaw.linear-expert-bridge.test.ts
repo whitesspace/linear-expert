@@ -132,7 +132,6 @@ async function run() {
       services: [],
       methods: [],
       clis: [],
-      http: [],
     };
     const api = {
       pluginConfig: buildConfig(),
@@ -148,9 +147,6 @@ async function run() {
       },
       registerCli(factory, meta) {
         apiCalls.clis.push({ factory, meta });
-      },
-      registerHttpRoute(handler) {
-        apiCalls.http.push(handler);
       },
     };
 
@@ -169,11 +165,50 @@ async function run() {
     assert.equal(apiCalls.services.length, 1);
     assert.equal(apiCalls.methods.map((item) => item.name).sort().join(","), "linear-expert-bridge.runOnce,linear-expert-bridge.status,linear-expert-bridge.stop");
     assert.equal(apiCalls.clis.length, 1);
-    assert.equal(apiCalls.http.length, 1);
 
     const snapshot = snapshotBridgeState(state, config);
     assert.equal(snapshot.pluginId, "linear-expert-bridge");
     assert.equal(snapshot.config.heartbeatIntervalMs, 10000);
+  }
+
+  {
+    const logged = [];
+    const apiCalls = {
+      services: [],
+    };
+    const api = {
+      pluginConfig: buildConfig(),
+      logger: {
+        warn() {},
+        error(...args) {
+          logged.push(args.map(String).join(" "));
+        },
+      },
+      registerService(service) {
+        apiCalls.services.push(service);
+      },
+      registerGatewayMethod() {},
+      registerCli() {},
+    };
+
+    const { state } = registerBridgePlugin(api, {
+      deps: {
+        client: {
+          listRuns: async () => {
+            throw new Error("boom");
+          },
+          claimRun: async () => null,
+          submitResult: async () => ({}),
+        },
+      },
+    });
+
+    assert.equal(apiCalls.services.length, 1);
+    apiCalls.services[0].start();
+    await delay(20);
+    apiCalls.services[0].stop();
+    assert.match(String(state.lastError), /boom/);
+    assert.ok(logged.some((line) => line.includes("linear-expert-bridge poll failed")));
   }
 
   console.log("openclaw.linear-expert-bridge.test passed");

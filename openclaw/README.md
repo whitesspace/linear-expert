@@ -31,3 +31,4 @@
   - 当前为 runtime-first + CLI fallback 过渡版
   - 已支持 `status / runOnce / stop`
   - 已支持把 active run 的 heartbeat/progress 同步回 Worker
+  - 当前不注册插件 HTTP route，避免触发 Gateway route auth 校验错误
