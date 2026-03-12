@@ -33,6 +33,7 @@ async function run() {
 
   {
     const requests = [];
+    const gatewayCalls = [];
     const client = createLinearExpertClient(buildConfig(), async (url, init = {}) => {
       requests.push({ url: String(url), init });
       if (String(url).includes("/internal/agent-runs?")) {
@@ -59,6 +60,12 @@ async function run() {
           headers: { "content-type": "application/json" },
         });
       }
+      if (String(url).includes("/heartbeat")) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       throw new Error(`unexpected url ${url}`);
     });
 
@@ -66,10 +73,7 @@ async function run() {
     await pollOnce(buildConfig(), state, {
       client,
       gatewayCall: async (method, params, options = {}) => {
-        assert.equal(method, "agent");
-        assert.equal(params.message, "hello");
-        assert.equal(params.sessionId, "as_1");
-        assert.equal(options.expectFinal, true);
+        gatewayCalls.push({ method, params, options });
         return {
           reply: "{\"actions\":[{\"kind\":\"noop\"}]}",
           runId: "gw_run_1",
@@ -77,7 +81,13 @@ async function run() {
       },
     });
     assert.equal(state.processedRuns, 1);
+    const agentCall = gatewayCalls.find((call) => call.method === "agent");
+    assert.ok(agentCall);
+    assert.equal(agentCall?.params.message, "hello");
+    assert.equal(agentCall?.params.sessionId, "as_1");
+    assert.equal(agentCall?.options.expectFinal, true);
     assert.ok(requests.some((item) => item.url.includes("/internal/agent-runs/run_1/result")));
+    assert.ok(requests.some((item) => item.url.includes("/internal/agent-runs/run_1/heartbeat")));
   }
 
   {
@@ -91,6 +101,7 @@ async function run() {
 
     const processing = processClaimedRun(run, buildConfig(), state, {
       client: {
+        heartbeatRun: async () => ({ ok: true }),
         submitResult: async (runId, payload) => {
           submitted.push({ runId, payload });
           return { ok: true };

@@ -18,6 +18,11 @@ export interface AgentRunRecord extends NewAgentRunRecord {
   createdAt: string;
   updatedAt: string;
   lockExpiresAt: string | null;
+  lastHeartbeatAt: string | null;
+  progressPhase: string | null;
+  progressMessage: string | null;
+  progressPercent: number | null;
+  gatewayRunId: string | null;
 }
 
 export interface AgentRunFilter {
@@ -27,4 +32,11 @@ export interface AgentRunFilter {
 
 export interface AgentRunResultPatch {
   status: Exclude<AgentRunStatus, "pending">;
+}
+
+export interface AgentRunHeartbeatPatch {
+  phase?: string | null;
+  message?: string | null;
+  percent?: number | null;
+  gatewayRunId?: string | null;
 }

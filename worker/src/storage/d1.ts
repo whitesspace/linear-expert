@@ -1,5 +1,6 @@
 import type {
   AgentRunFilter,
+  AgentRunHeartbeatPatch,
   AgentRunRecord,
   AgentRunResultPatch,
   NewAgentRunRecord,
@@ -58,6 +59,11 @@ function mapAgentRunRow(row: Record<string, unknown>): AgentRunRecord {
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
     lockExpiresAt: (row.lock_expires_at as string) ?? null,
+    lastHeartbeatAt: (row.last_heartbeat_at as string) ?? null,
+    progressPhase: (row.progress_phase as string) ?? null,
+    progressMessage: (row.progress_message as string) ?? null,
+    progressPercent: (row.progress_percent as number) ?? null,
+    gatewayRunId: (row.gateway_run_id as string) ?? null,
   };
 }
 
@@ -216,8 +222,9 @@ class D1AgentRunStore implements AgentRunStore {
       .prepare(
         `INSERT INTO agent_runs (
           id, agent_session_id, workspace_id, event_type, trace_id,
-          payload_json, status, created_at, updated_at, lock_expires_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL)`
+          payload_json, status, created_at, updated_at, lock_expires_at,
+          last_heartbeat_at, progress_phase, progress_message, progress_percent, gateway_run_id
+        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL, NULL, NULL, NULL, NULL, NULL)`
       )
       .bind(
         id,
@@ -237,6 +244,11 @@ class D1AgentRunStore implements AgentRunStore {
       createdAt: now,
       updatedAt: now,
       lockExpiresAt: null,
+      lastHeartbeatAt: null,
+      progressPhase: null,
+      progressMessage: null,
+      progressPercent: null,
+      gatewayRunId: null,
     };
   }
 
@@ -266,11 +278,41 @@ class D1AgentRunStore implements AgentRunStore {
     const rows = await this.db
       .prepare(
         `UPDATE agent_runs
-         SET status = 'processing', lock_expires_at = ?, updated_at = ?
+         SET status = 'processing', lock_expires_at = ?, updated_at = ?, last_heartbeat_at = ?
          WHERE id = ? AND (status IN ('pending', 'processing') AND (lock_expires_at IS NULL OR lock_expires_at <= ?))
          RETURNING *`
       )
-      .bind(lockExpiresAt, nowIso, runId, nowIso)
+      .bind(lockExpiresAt, nowIso, nowIso, runId, nowIso)
+      .all();
+    if (!rows.results?.length) {
+      return null;
+    }
+    return mapAgentRunRow(rows.results[0]);
+  }
+
+  async updateHeartbeat(runId: string, patch: AgentRunHeartbeatPatch): Promise<AgentRunRecord | null> {
+    const now = ISO();
+    const rows = await this.db
+      .prepare(
+        `UPDATE agent_runs SET
+          last_heartbeat_at = ?,
+          progress_phase = COALESCE(?, progress_phase),
+          progress_message = COALESCE(?, progress_message),
+          progress_percent = COALESCE(?, progress_percent),
+          gateway_run_id = COALESCE(?, gateway_run_id),
+          updated_at = ?
+        WHERE id = ? AND status = 'processing'
+        RETURNING *`
+      )
+      .bind(
+        now,
+        patch.phase ?? null,
+        patch.message ?? null,
+        patch.percent ?? null,
+        patch.gatewayRunId ?? null,
+        now,
+        runId,
+      )
       .all();
     if (!rows.results?.length) {
       return null;

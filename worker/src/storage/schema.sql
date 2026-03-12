@@ -40,7 +40,12 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   status TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  lock_expires_at TEXT
+  lock_expires_at TEXT,
+  last_heartbeat_at TEXT,
+  progress_phase TEXT,
+  progress_message TEXT,
+  progress_percent REAL,
+  gateway_run_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS oauth_tokens (

@@ -1,5 +1,6 @@
 import type {
   AgentRunFilter,
+  AgentRunHeartbeatPatch,
   AgentRunRecord,
   AgentRunResultPatch,
   NewAgentRunRecord,
@@ -36,6 +37,7 @@ export interface AgentRunStore {
   findById(runId: string): Promise<AgentRunRecord | null>;
   listByStatus(filter: AgentRunFilter): Promise<AgentRunRecord[]>;
   claim(runId: string, lockDurationSeconds: number): Promise<AgentRunRecord | null>;
+  updateHeartbeat(runId: string, patch: AgentRunHeartbeatPatch): Promise<AgentRunRecord | null>;
   applyResult(runId: string, patch: AgentRunResultPatch): Promise<AgentRunRecord | null>;
 }
 

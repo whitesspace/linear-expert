@@ -141,12 +141,15 @@ function touchActiveRun(state, runId, phase) {
 }
 
 function createCliExecutor(config) {
-  const execute = async ({ prompt, sessionId, signal, timeoutMs }) => runOpenClaw(prompt, sessionId, {
-    cliBin: config.cliBin,
-    cliArgs: config.cliArgs,
-    timeoutMs: timeoutMs ?? config.timeoutMs,
-    signal,
-  });
+  const execute = async ({ prompt, sessionId, signal, timeoutMs, onPhase }) => {
+    await onPhase?.("running");
+    return runOpenClaw(prompt, sessionId, {
+      cliBin: config.cliBin,
+      cliArgs: config.cliArgs,
+      timeoutMs: timeoutMs ?? config.timeoutMs,
+      signal,
+    });
+  };
   execute.executionMode = "cli_fallback";
   return execute;
 }
@@ -158,9 +161,9 @@ function createGatewayRuntimeExecutor(api, config, deps = {}) {
   }
 
   const execute = async ({ prompt, sessionId, signal, timeoutMs, onAccepted, onPhase, onHeartbeat }) => {
-    onPhase?.("dispatching");
+    await onPhase?.("dispatching");
     const heartbeatTimer = setInterval(() => {
-      onHeartbeat?.("running");
+      void onHeartbeat?.("running");
     }, config.heartbeatIntervalMs);
 
     try {
@@ -175,12 +178,12 @@ function createGatewayRuntimeExecutor(api, config, deps = {}) {
       });
       const gatewayRunId = extractGatewayRunId(response);
       if (gatewayRunId) {
-        onAccepted?.({
+        await onAccepted?.({
           gatewayRunId,
           executionMode: "gateway_runtime",
         });
       }
-      onPhase?.("parsing");
+      await onPhase?.("parsing");
       const intent = extractIntentFromGatewayResponse(response);
       if (intent) {
         return { ok: true, intent };
@@ -338,6 +341,14 @@ export function createLinearExpertClient(config, fetchImpl = fetch) {
         body: JSON.stringify({ lockDurationSeconds: config.lockDurationSeconds }),
       });
     },
+    async heartbeatRun(runId, payload) {
+      const url = `${config.linearExpertBaseUrl}/internal/agent-runs/${runId}/heartbeat`;
+      return fetchJson(fetchImpl, url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+    },
     async submitResult(runId, payload) {
       const url = `${config.linearExpertBaseUrl}/internal/agent-runs/${runId}/result`;
       return fetchJson(fetchImpl, url, {
@@ -404,8 +415,25 @@ export async function processClaimedRun(run, config, state, deps = {}) {
     },
   });
 
+  const reportHeartbeat = async (patch = {}) => {
+    if (typeof client.heartbeatRun !== "function") {
+      return null;
+    }
+    try {
+      return await client.heartbeatRun(run.id, patch);
+    } catch (error) {
+      deps.api?.logger?.warn?.("linear-expert-bridge heartbeat failed", error);
+      return null;
+    }
+  };
+
+  await reportHeartbeat({ phase: "claimed" });
+
   const heartbeatTimer = setInterval(() => {
     touchActiveRun(state, run.id);
+    void reportHeartbeat({
+      phase: state.activeRuns.get(run.id)?.phase ?? "processing",
+    });
   }, config.heartbeatIntervalMs);
 
   try {
@@ -422,12 +450,19 @@ export async function processClaimedRun(run, config, state, deps = {}) {
           phase: "running",
           lastHeartbeatAt: nowIso(),
         });
+        return reportHeartbeat({
+          phase: "running",
+          message: "Agent run accepted",
+          gatewayRunId: gatewayRunId || undefined,
+        });
       },
       onPhase: (phase) => {
         touchActiveRun(state, run.id, phase);
+        return reportHeartbeat({ phase });
       },
       onHeartbeat: (phase) => {
         touchActiveRun(state, run.id, phase);
+        return reportHeartbeat({ phase });
       },
     });
 

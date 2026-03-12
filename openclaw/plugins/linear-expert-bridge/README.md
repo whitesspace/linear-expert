@@ -11,7 +11,10 @@
 ## 当前能力
 
 - Background service: 轮询 `GET /internal/agent-runs`
-- Claim + submit: 复用现有 `agent-runs/:id/claim` 与 `agent-runs/:id/result`
+- Claim + runtime state + submit:
+  - `agent-runs/:id/claim`
+  - `agent-runs/:id/heartbeat`
+  - `agent-runs/:id/result`
 - Gateway RPC:
   - `linear-expert-bridge.status`
   - `linear-expert-bridge.runOnce`
@@ -25,6 +28,7 @@
   - 若运行时仍是旧 API，会回退到 `registerGatewayHttpHandler` / `registerHttpHandler`
 - 生命周期状态：
   - active run 会暴露 `phase / lastHeartbeatAt / stopRequested / executionMode / gatewayRunId`
+  - Worker 侧会同步保存 `progressPhase / progressMessage / progressPercent / lastHeartbeatAt / gatewayRunId`
 
 ## 安装（本地开发）
 
@@ -61,4 +65,5 @@ openclaw plugins install -l ./openclaw/plugins/linear-expert-bridge
 
 - 这一版已经支持 runtime-first 的执行适配，但真正启用仍取决于当前 Gateway 是否暴露可调用的 agent RPC 入口
 - stop 目前是 best-effort：若当前运行时不支持取消信号，会退回到本地中断与结果回传
+- heartbeat / progress 会以 best-effort 方式同步回 Worker，不会因为状态回传失败而中断实际 run
 - 旧 `openclaw/runner` 仍保留，作为 CLI fallback

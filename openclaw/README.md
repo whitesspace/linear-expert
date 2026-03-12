@@ -8,7 +8,9 @@
 3. **执行 agent run**：
    - 优先由 `plugins/linear-expert-bridge` 走 Gateway runtime-first 适配执行
    - 当前若 Gateway 没暴露稳定 runtime 调用入口，会退回 `openclaw agent --json --message ...`
-4. **回传 intent 结果**：`POST /internal/agent-runs/:id/result`
+4. **同步运行态**：`POST /internal/agent-runs/:id/heartbeat`
+   - 可回传 `phase / message / percent / gatewayRunId`
+5. **回传 intent 结果**：`POST /internal/agent-runs/:id/result`
 
 所有 `/internal/*` 接口都需要 `Authorization: Bearer <OPENCLAW_INTERNAL_SECRET>` 头。
 不支持用 session token 调用这些接口。
@@ -27,4 +29,5 @@
   - OpenClaw Gateway 插件原型
   - 用 background service + Gateway RPC 方式替代外部 runner 守护进程
   - 当前为 runtime-first + CLI fallback 过渡版
-  - 已支持 `status / runOnce / stop` 与 active run heartbeat 可观测性
+  - 已支持 `status / runOnce / stop`
+  - 已支持把 active run 的 heartbeat/progress 同步回 Worker

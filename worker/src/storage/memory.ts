@@ -1,5 +1,6 @@
 import type {
   AgentRunFilter,
+  AgentRunHeartbeatPatch,
   AgentRunRecord,
   AgentRunResultPatch,
   NewAgentRunRecord,
@@ -132,6 +133,11 @@ class InMemoryAgentRunStore implements AgentRunStore {
       createdAt: now,
       updatedAt: now,
       lockExpiresAt: null,
+      lastHeartbeatAt: null,
+      progressPhase: null,
+      progressMessage: null,
+      progressPercent: null,
+      gatewayRunId: null,
     };
     this.runs.set(record.id, record);
     return record;
@@ -177,6 +183,25 @@ class InMemoryAgentRunStore implements AgentRunStore {
       ...run,
       status: "processing",
       lockExpiresAt: new Date(now + lockDurationSeconds * 1000).toISOString(),
+      lastHeartbeatAt: ISO(),
+      updatedAt: ISO(),
+    };
+    this.runs.set(runId, updated);
+    return updated;
+  }
+
+  async updateHeartbeat(runId: string, patch: AgentRunHeartbeatPatch): Promise<AgentRunRecord | null> {
+    const run = this.runs.get(runId);
+    if (!run || run.status !== "processing") {
+      return null;
+    }
+    const updated: AgentRunRecord = {
+      ...run,
+      lastHeartbeatAt: ISO(),
+      progressPhase: patch.phase ?? run.progressPhase ?? null,
+      progressMessage: patch.message ?? run.progressMessage ?? null,
+      progressPercent: patch.percent ?? run.progressPercent ?? null,
+      gatewayRunId: patch.gatewayRunId ?? run.gatewayRunId ?? null,
       updatedAt: ISO(),
     };
     this.runs.set(runId, updated);
