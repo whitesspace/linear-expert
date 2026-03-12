@@ -1131,16 +1131,16 @@ async function handleSubmitAgentRunResult(
   });
 
   // 更新会话活动
-  updateSessionActivity(run.agentSessionId);
+  await updateSessionActivity(storage, run.agentSessionId);
 
   // 清除 in-flight 标记
   clearInflightSession(run.agentSessionId);
 
   // 完成会话
   if (execResult.ok) {
-    completeSession(run.agentSessionId);
+    await completeSession(storage, run.agentSessionId);
   } else {
-    failSession(run.agentSessionId);
+    await failSession(storage, run.agentSessionId);
   }
 
   const updated = await storage.agentRuns.applyResult(runId, { status: execResult.ok ? "completed" : "failed" });

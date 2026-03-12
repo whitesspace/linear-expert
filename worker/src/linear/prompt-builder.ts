@@ -21,6 +21,8 @@ export interface PromptContext {
   workspaceId?: string;
   agentSessionId?: string;
   traceId?: string;
+  // 🆕 恢复的历史会话上下文
+  restoredContext?: string;
 }
 
 export interface ApiEndpoint {

@@ -15,7 +15,8 @@ import {
   markWebhookProcessed,
   getDedupWindow,
 } from "../linear/dedup";
-import { createAgentSession as lifecycleCreateSession, updateSessionActivity, completeSession, failSession } from "../linear/session-lifecycle";
+import { createOrRestoreSession, updateSessionActivity, completeSession, failSession } from "../linear/session-lifecycle";
+import { restoreSessionContext } from "../linear/session-context";
 
 /**
  * WS-37 (stub): Invocation layer reserved routes.
@@ -162,6 +163,12 @@ export async function handleInvokeRequest(
 
     const origin = new URL(request.url).origin;
 
+    // 🆕 检查是否存在持久化会话（即使几天/几周前）
+    let restoredContext = null;
+    if (agentSessionId && payload.data.workspaceId) {
+      restoredContext = await restoreSessionContext(env, payload.data.workspaceId, agentSessionId, storage);
+    }
+
     const promptContext: PromptContext = {
       issue: payload.data.issue as any,
       guidance: typeof payload.data.guidance === "string" ? payload.data.guidance : undefined,
@@ -172,6 +179,16 @@ export async function handleInvokeRequest(
       agentSessionId: payload.data.agentSessionId ?? undefined,
       traceId,
     };
+
+    // 如果存在历史会话，添加上下文摘要
+    if (restoredContext?.exists && restoredContext.summaryPrompt) {
+      promptContext.restoredContext = restoredContext.summaryPrompt;
+
+      // 更新会话的最后活动时间
+      if (restoredContext.sessionRecord) {
+        await storage.sessions.updateLastActivity(restoredContext.sessionRecord.id);
+      }
+    }
 
     const firstThoughtPrompt = buildEnrichedPrompt(promptContext, origin);
 
@@ -186,23 +203,32 @@ export async function handleInvokeRequest(
     const hasSession = Boolean(payload.data.workspaceId && payload.data.agentSessionId);
     const isCreatedEvent = payload.data.type.includes("created");
 
-    // v0: write the first AgentActivity(thought) back to Linear within the 10s budget.
-    if (hasSession && isCreatedEvent) {
+    // 🆕 创建或恢复会话（持久化）
+    if (hasSession) {
       const wsId = payload.data.workspaceId!;
       const sessionId = payload.data.agentSessionId!;
 
-      // 创建会话（生命周期管理）
-      lifecycleCreateSession(sessionId, wsId);
+      await createOrRestoreSession(
+        storage,
+        sessionId,
+        wsId,
+        (payload.data.issue as any)?.id,
+        (payload.data.issue as any)?.identifier,
+        (payload.data.issue as any)?.title,
+        (payload.data.issue as any)?.url,
+      );
 
-      await createAgentActivity(env, wsId, {
-        agentSessionId: sessionId,
-        type: "thought",
-        content: {
-          body: firstThoughtPrompt,
-        },
-      });
-
-      clearStop(env, sessionId);
+      // v0: write the first AgentActivity(thought) back to Linear within the 10s budget.
+      if (isCreatedEvent) {
+        await createAgentActivity(env, wsId, {
+          agentSessionId: sessionId,
+          type: "thought",
+          content: {
+            body: firstThoughtPrompt,
+          },
+        });
+        clearStop(env, sessionId);
+      }
     } else {
       // 如果没有 session，清除 in-flight 标记
       if (agentSessionId) {
@@ -237,6 +263,12 @@ export async function handleInvokeRequest(
           issue: payload.data.issue,
           guidance: payload.data.guidance,
           previousComments: payload.data.previousComments,
+          // 🆕 添加恢复的上下文信息
+          restoredContext: restoredContext?.exists ? {
+            timeSinceLastActivity: restoredContext.timeSinceLastActivity,
+            activityCount: restoredContext.sessionRecord?.activityCount,
+            lastActivityAt: restoredContext.sessionRecord?.lastActivityAt,
+          } : undefined,
         },
         api: {
           baseUrl: origin,
@@ -260,8 +292,9 @@ export async function handleInvokeRequest(
       reserved: {
         receivedType: payload.data.type,
         firstThoughtPrompt,
-        wroteThought: !!(payload.data.workspaceId && payload.data.agentSessionId),
+        wroteThought: hasSession && isCreatedEvent,
         queuedRunId,
+        restored: restoredContext?.exists ? true : undefined,
         traceStore: {
           wrote: true,
           agentSessionId: payload.data.agentSessionId,
@@ -287,6 +320,9 @@ export async function handleInvokeRequest(
       return json({ error: "invalid payload", details: payload.error.flatten() }, { status: 400 });
     }
 
+    const agentSessionId = payload.data.agentSessionId;
+    const workspaceId = payload.data.workspaceId;
+
     const latestUserMessage = extractAgentActivityBody(payload.data.agentActivity);
 
     const origin = new URL(request.url).origin;
@@ -297,8 +333,8 @@ export async function handleInvokeRequest(
       promptContext: payload.data.promptContext,
       latestUserMessage,
       eventType: payload.data.type || "AgentSessionEvent.created",
-      workspaceId: payload.data.workspaceId ?? undefined,
-      agentSessionId: payload.data.agentSessionId ?? undefined,
+      workspaceId: workspaceId ?? undefined,
+      agentSessionId: agentSessionId ?? undefined,
       traceId,
     };
 
@@ -306,8 +342,8 @@ export async function handleInvokeRequest(
 
     // WS-37: keep replay endpoint consistent with production invocation by writing trace correlation too.
     await storage.trace.set(traceId, {
-      agentSessionId: payload.data.agentSessionId ?? undefined,
-      workspaceId: payload.data.workspaceId ?? undefined,
+      agentSessionId: agentSessionId ?? undefined,
+      workspaceId: workspaceId ?? undefined,
       eventType: payload.data.type,
       createdAt: new Date().toISOString(),
     });
@@ -321,8 +357,8 @@ export async function handleInvokeRequest(
         firstThoughtPrompt,
         traceStore: {
           wrote: true,
-          agentSessionId: payload.data.agentSessionId,
-          workspaceId: payload.data.workspaceId,
+          agentSessionId: agentSessionId,
+          workspaceId: workspaceId,
         },
       },
     });
