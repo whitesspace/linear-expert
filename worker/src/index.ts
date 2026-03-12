@@ -5,6 +5,7 @@ import { handleInvokeRequest } from "./routes/invoke";
 import { startOauth, oauthCallback } from "./routes/oauth";
 import { handleLinearWebhook } from "./routes/webhooks";
 import { handleDebugComment } from "./routes/debug";
+import { handlePublicRequest } from "./routes/public";
 import { getExecutionLayerPlan, getExecutionLayerRouteMap } from "./linear/execution-plan";
 import { getStorage } from "./storage";
 import { APP_CONFIG, missingSecrets } from "./env";
@@ -40,6 +41,11 @@ export default {
 
     if (url.pathname === "/internal/debug/comment" && request.method === "POST") {
       return handleDebugComment(request, env);
+    }
+
+    const publicResponse = await handlePublicRequest(request, env, storage);
+    if (publicResponse) {
+      return publicResponse;
     }
 
     const invokeResponse = await handleInvokeRequest(request, env, storage);

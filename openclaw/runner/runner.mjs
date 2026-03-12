@@ -1,10 +1,9 @@
-import { spawn } from "node:child_process";
-import { extractFirstJson, splitArgs } from "./runner-utils.mjs";
+import { DEFAULT_CLI_ARGS, runOpenClaw } from "./runner-core.mjs";
 
 const BASE_URL = process.env.LINEAR_EXPERT_BASE_URL;
 const SECRET = process.env.OPENCLAW_INTERNAL_SECRET;
 const CLI_BIN = process.env.OPENCLAW_CLI_BIN || "openclaw";
-const CLI_ARGS = process.env.OPENCLAW_CLI_ARGS || "agent --local --message";
+const CLI_ARGS = process.env.OPENCLAW_CLI_ARGS || DEFAULT_CLI_ARGS;
 const POLL_INTERVAL_MS = Number(process.env.RUNNER_POLL_INTERVAL_MS || "5000");
 const TIMEOUT_MS = Number(process.env.OPENCLAW_CLI_TIMEOUT_MS || "300000");
 const RUN_ONCE = process.env.RUNNER_ONCE === "true";
@@ -21,28 +20,6 @@ const headers = {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function buildCommandArgs(prompt, sessionId) {
-  const args = splitArgs(CLI_ARGS);
-  const messageIndex = args.indexOf("--message");
-  if (messageIndex === -1) {
-    const baseArgs = [...args, "--message", prompt];
-    if (sessionId) {
-      baseArgs.push("--session-id", sessionId);
-    }
-    return baseArgs;
-  }
-  const withPrompt = [...args];
-  if (messageIndex === args.length - 1) {
-    withPrompt.push(prompt);
-  } else {
-    withPrompt.splice(messageIndex + 1, 1, prompt);
-  }
-  if (sessionId) {
-    withPrompt.push("--session-id", sessionId);
-  }
-  return withPrompt;
 }
 
 async function fetchJson(url, init) {
@@ -78,38 +55,6 @@ async function submitResult(runId, payload) {
   });
 }
 
-async function runOpenClaw(prompt, sessionId) {
-  const args = buildCommandArgs(prompt, sessionId);
-  return new Promise((resolve) => {
-    const child = spawn(CLI_BIN, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      resolve({ ok: false, error: "openclaw_timeout" });
-    }, TIMEOUT_MS);
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      const intent = extractFirstJson(stdout);
-      if (intent) {
-        resolve({ ok: true, intent });
-        return;
-      }
-      resolve({
-        ok: false,
-        error: `openclaw_invalid_json exit=${code ?? "unknown"} stderr=${stderr.slice(0, 500)}`,
-        raw: stdout.slice(0, 2000),
-      });
-    });
-  });
-}
-
 async function handleRun(run) {
   let payload;
   try {
@@ -125,7 +70,11 @@ async function handleRun(run) {
   }
   // 使用 agentSessionId 作为 OpenClaw session-id 以保持上下文
   const sessionId = run.agentSessionId || null;
-  const result = await runOpenClaw(prompt, sessionId);
+  const result = await runOpenClaw(prompt, sessionId, {
+    cliBin: CLI_BIN,
+    cliArgs: CLI_ARGS,
+    timeoutMs: TIMEOUT_MS,
+  });
   await submitResult(run.id, result);
 }
 

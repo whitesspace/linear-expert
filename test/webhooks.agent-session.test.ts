@@ -76,6 +76,46 @@ async function run() {
         });
       }
 
+      if (query.includes("agentSessionCreateOnIssue")) {
+        return new Response(JSON.stringify({
+          data: {
+            agentSessionCreateOnIssue: {
+              success: true,
+              agentSession: { id: "as_issue" },
+            },
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (query.includes("agentSessionUpdateExternalUrl")) {
+        return new Response(JSON.stringify({
+          data: {
+            agentSessionUpdateExternalUrl: {
+              success: true,
+              agentSession: { id: body?.variables?.id ?? "as_unknown" },
+            },
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (query.includes("viewer { id name }") && query.includes("organization { id name urlKey }")) {
+        return new Response(JSON.stringify({
+          data: {
+            viewer: { id: "app_user_1", name: "Expert Agent" },
+            organization: { id: "ws_1", name: "Example Org", urlKey: "example" },
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
       if (query.includes("agentActivityCreate")) {
         return new Response(JSON.stringify({
           data: {
@@ -180,6 +220,17 @@ async function run() {
     const graphqlCall = calls.find((call) => call.kind === "graphql");
     assert.ok(graphqlCall);
     assert.match(String(graphqlCall?.body.query ?? ""), /agentSessionCreateOnComment/);
+    const commentExternalUrlCall = calls.find((call) => String(call.body?.query ?? "").includes("agentSessionUpdateExternalUrl"));
+    assert.deepEqual(commentExternalUrlCall?.body.variables?.input?.externalUrls, [
+      {
+        label: "查看处理状态",
+        url: "https://example.com/agent-sessions/as_comment",
+      },
+    ]);
+    const commentInvokeCall = calls.filter((call) => call.kind === "invoke").at(-1);
+    assert.equal(commentInvokeCall?.body.agentSessionId, "as_comment");
+    assert.equal(commentInvokeCall?.body.workspaceId, "ws_1");
+    assert.equal(commentInvokeCall?.body.agentActivity?.body, "@agent please help");
 
     nextGraphqlError = "Comment already has an agent session";
     const duplicateRes = await worker.fetch(
@@ -201,6 +252,56 @@ async function run() {
     const duplicateJson = await duplicateRes.json() as { status?: string; reason?: string };
     assert.equal(duplicateJson.status, "accepted");
     assert.equal(duplicateJson.reason, "already_has_session");
+
+    const assignPayload = {
+      type: "Issue",
+      action: "update",
+      organizationId: "ws_1",
+      updatedFrom: {
+        delegateId: null,
+      },
+      data: {
+        id: "issue_2",
+        identifier: "WS-2",
+        title: "Assigned to agent",
+        url: "https://linear.app/example/issue/WS-2",
+        delegateId: "app_user_1",
+        teamId: "team_1",
+      },
+    };
+    const assignBody = JSON.stringify(assignPayload);
+    const assignSignature = sign(env.LINEAR_WEBHOOK_SECRET as string, assignBody);
+    const assignTimestamp = String(Date.now());
+
+    const assignRes = await worker.fetch(
+      new Request("https://example.com/webhooks/linear", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "linear-signature": assignSignature,
+          "linear-timestamp": assignTimestamp,
+          "linear-event": "Issue",
+        },
+        body: assignBody,
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+
+    assert.equal(assignRes.status, 200);
+    const issueSessionCall = calls.find((call) => String(call.body?.query ?? "").includes("agentSessionCreateOnIssue"));
+    assert.ok(issueSessionCall);
+    const issueExternalUrlCall = calls.filter((call) => String(call.body?.query ?? "").includes("agentSessionUpdateExternalUrl")).at(-1);
+    assert.deepEqual(issueExternalUrlCall?.body.variables?.input?.externalUrls, [
+      {
+        label: "查看处理状态",
+        url: "https://example.com/agent-sessions/as_issue",
+      },
+    ]);
+    const assignInvokeCall = calls.filter((call) => call.kind === "invoke").at(-1);
+    assert.equal(assignInvokeCall?.body.agentSessionId, "as_issue");
+    assert.equal(assignInvokeCall?.body.issue?.id, "issue_2");
+    assert.equal(assignInvokeCall?.body.workspaceId, "ws_1");
 
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();

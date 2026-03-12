@@ -95,7 +95,14 @@ export async function oauthCallback(request: Request, env: Env): Promise<Respons
       ? new Date(Date.now() + Number(tokenResponse.expires_in) * 1000).toISOString()
       : new Date(Date.now() + 3600 * 1000).toISOString(),
     scopes: normalizeScopes(tokenResponse.scope),
-    actorMode: 'app'
+    actorMode: 'app',
+    installationIdentity: {
+      viewerId: identity.viewer?.id ?? "",
+      viewerName: identity.viewer?.name ?? null,
+      organizationId: identity.organization?.id ?? null,
+      organizationName: identity.organization?.name ?? null,
+      organizationUrlKey: identity.organization?.urlKey ?? null,
+    },
   });
 
   return Response.json({

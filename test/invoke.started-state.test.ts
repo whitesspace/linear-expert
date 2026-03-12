@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import worker from "../worker/src/index";
 import { getStorage } from "../worker/src/storage";
+import { cleanupAll } from "../worker/src/linear/dedup";
 
 type TestEnv = Parameters<typeof worker.fetch>[1];
 
@@ -54,6 +55,7 @@ async function run() {
   const originalFetch = globalThis.fetch;
 
   try {
+    cleanupAll();
     {
       const calls: GraphqlCall[] = [];
       globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -121,6 +123,20 @@ async function run() {
           });
         }
 
+        if (query.includes("agentSessionUpdateExternalUrl")) {
+          return new Response(JSON.stringify({
+            data: {
+              agentSessionUpdateExternalUrl: {
+                success: true,
+                agentSession: { id: body.variables.id },
+              },
+            },
+          }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
         if (query.includes("agentActivityCreate")) {
           return new Response(JSON.stringify({
             data: {
@@ -157,10 +173,22 @@ async function run() {
 
       const response = await invokeCreatedEvent(env, "as_started_needed", { id: "issue_1" });
       assert.equal(response.status, 200);
+      const json = await response.json() as { reserved?: { initialThoughtBody?: string; externalStatusUrl?: string } };
+      assert.match(json.reserved?.initialThoughtBody ?? "", /30-90 秒/);
+      assert.equal(json.reserved?.externalStatusUrl, "https://example.com/agent-sessions/as_started_needed");
 
       const updateCall = calls.find((call) => call.query.includes("issueUpdate(id: $id, input: $input)"));
       assert.ok(updateCall, "expected invoke.created to move issue into the first started state");
       assert.equal((updateCall?.variables.input as Record<string, unknown>)?.stateId, "state_in_progress");
+      const externalUrlCall = calls.find((call) => call.query.includes("agentSessionUpdateExternalUrl"));
+      assert.ok(externalUrlCall, "expected invoke.created to publish external status url");
+      assert.equal(externalUrlCall?.variables.id, "as_started_needed");
+      assert.deepEqual(externalUrlCall?.variables.input?.externalUrls, [
+        {
+          label: "查看处理状态",
+          url: "https://example.com/agent-sessions/as_started_needed",
+        },
+      ]);
     }
 
     {
@@ -233,8 +261,132 @@ async function run() {
       const statesCall = calls.find((call) => call.query.includes("states { nodes { id name type position } }"));
       assert.equal(statesCall, undefined, "started issue should not trigger team states lookup");
     }
+
+    cleanupAll();
+    {
+      let agentActivityCreateCount = 0;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (!url.includes("api.linear.app/graphql")) {
+          return new Response("ok", { status: 200 });
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as GraphqlCall;
+        const query = String(body.query);
+
+        if (query.includes("issue(id: $id)")) {
+          return new Response(JSON.stringify({
+            data: {
+              issue: {
+                id: "issue_3",
+                team: { id: "team_1" },
+                state: { id: "state_todo", name: "Todo", type: "unstarted" },
+              },
+            },
+          }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        if (query.includes("states { nodes { id name type position } }")) {
+          return new Response(JSON.stringify({
+            data: {
+              team: {
+                states: {
+                  nodes: [{ id: "state_started", name: "In Progress", type: "started", position: 1 }],
+                },
+              },
+            },
+          }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        if (query.includes("issueUpdate(id: $id, input: $input)")) {
+          return new Response(JSON.stringify({
+            data: {
+              issueUpdate: {
+                success: true,
+                issue: {
+                  id: "issue_3",
+                  identifier: "WS-3",
+                  title: "Duplicate created",
+                  url: "https://linear.app/example/issue/WS-3",
+                },
+              },
+            },
+          }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        if (query.includes("agentSessionUpdateExternalUrl")) {
+          return new Response(JSON.stringify({
+            data: {
+              agentSessionUpdateExternalUrl: {
+                success: true,
+                agentSession: { id: body.variables.id },
+              },
+            },
+          }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        if (query.includes("agentActivityCreate")) {
+          agentActivityCreateCount += 1;
+          return new Response(JSON.stringify({
+            data: {
+              agentActivityCreate: {
+                success: true,
+                agentActivity: { id: `aa_dup_${agentActivityCreateCount}`, archivedAt: null },
+              },
+            },
+          }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        if (query.includes("agentActivity(id: $id)")) {
+          return new Response(JSON.stringify({
+            data: {
+              agentActivity: {
+                id: "aa_dup",
+                archivedAt: null,
+              },
+            },
+          }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        return new Response(JSON.stringify({ data: {} }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch;
+
+      const firstResponse = await invokeCreatedEvent(env, "as_duplicate_created", { id: "issue_3" });
+      assert.equal(firstResponse.status, 200);
+      cleanupAll();
+
+      const secondResponse = await invokeCreatedEvent(env, "as_duplicate_created", { id: "issue_3" });
+      assert.equal(secondResponse.status, 200);
+      const secondJson = await secondResponse.json() as { reserved?: { duplicateCreated?: boolean; wroteThought?: boolean; queuedRunId?: string | null } };
+      assert.equal(secondJson.reserved?.duplicateCreated, true);
+      assert.equal(secondJson.reserved?.wroteThought, false);
+      assert.equal(secondJson.reserved?.queuedRunId ?? null, null);
+      assert.equal(agentActivityCreateCount, 1, "duplicate created should not write a second thought");
+    }
   } finally {
     globalThis.fetch = originalFetch;
+    cleanupAll();
   }
 
   console.log("invoke.started-state.test passed");

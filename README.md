@@ -122,9 +122,13 @@ linear-expert/
 - `GET /oauth/callback`
   - 接收 Linear OAuth callback
   - 只有 query `state` 与 cookie 中的 `state` 一致时才会继续换 token
+  - 会把 installation identity（当前 app user / organization）一起缓存到 OAuth 记录，供 assign/delegate webhook 直接判定是否属于当前 agent
 - `POST /webhooks/linear`
   - 接收 Linear webhook
   - 使用 `@linear/sdk/webhooks` 校验 `linear-signature` 与 `linear-timestamp`
+  - `@agent` / `isArtificialAgentSessionRoot` 命中后，会先创建 session，再立即主动 invoke，不再被动等待官方 `AgentSessionEvent.created`
+  - issue 被 assign / delegate 给当前 app user 时，也会主动创建 session 并立即 invoke
+  - comment/issue fallback 创建出 session 后，会立即回写 `externalUrls`，指向公开的 session 状态页
   - 当内部 invocation/comment fallback 失败时返回非 200，允许 Linear 重试
 
 ### Internal（仅 OpenClaw / lec 使用）
@@ -133,11 +137,22 @@ linear-expert/
 - `POST /internal/invoke/agent-session`
   - 接收 Linear AgentSessionEvent.*（例如 `AgentSessionEvent.created`）
   - 对 `AgentSessionEvent.created`：会先 best-effort 将 issue 推进到团队的第一个 `started` 状态，再写首个 `thought`
+  - 首个 `thought` 是用户可读的 loading/progress 文案，用于在 OpenClaw 真实执行较慢时先保活；当前文案明确提示“通常需要 30-90 秒”
+  - 同一个 `agentSessionId` 的第二次 `created` 会被视为重复事件，不会重复写 `thought` 或重复排队 run
   - 返回：`{ ok: true, traceId, reserved }`
     - `traceId`：本次 invocation 的相关性 ID（并写入 traceStore 供后续关联）
     - `reserved.firstThoughtPrompt`：根据 `promptContext/issue/guidance` 派生的 first-thought prompt（**不执行**任何 Linear actions）
+    - `reserved.initialThoughtBody`：实际写回 Linear 的首个 loading/progress 文案
+    - `reserved.externalStatusUrl`：当前 session 的公开状态页链接（同时会同步写入 Linear `externalUrls`）
     - `reserved.traceStore`：回显本次写入的 `agentSessionId/workspaceId`（若 payload 提供）
 - `POST /internal/invoke/signal`（接收 stop/auth/select 等 signals；当前仅回显派生 prompt，不执行任何 Linear actions）
+
+### Public
+
+- `GET /agent-sessions/:agentSessionId`
+  - 公开的 session 状态页
+  - 供 Linear `externalUrls` 打开，展示当前 session 状态、最近活动时间、关联 issue 与摘要
+  - 当 session 仍在 `active` 时会自动刷新
 
 #### Dev-only replay (WS-37)
 - `POST /internal/invoke/replay/agent-session-created`
@@ -408,6 +423,10 @@ npm test
 
 #### lec（thin wrapper）
 - `./scripts/lec cycles list [--team WS] [--limit 25] [--json]`
+- `./scripts/lec cycles get --id <cycleId> [--team WS] [--json]`
+- `./scripts/lec cycles create [--title "<name>"] --starts-at YYYY-MM-DD --ends-at YYYY-MM-DD [--team WS] [--json]`
+- `./scripts/lec cycles update --id <cycleId> [--title "<name>"] [--starts-at YYYY-MM-DD] [--ends-at YYYY-MM-DD] [--team WS] [--json]`
+- `./scripts/lec cycles archive --id <cycleId> [--team WS] [--json]`
 
 #### Smoke
 - `./scripts/lec-cycles-smoke.sh`

@@ -51,6 +51,32 @@ export async function getInstallationIdentity(accessToken: string) {
   });
 }
 
+export async function getInstallationIdentityForWorkspace(env: Env, workspaceId: string) {
+  const storage = getStorage(env);
+  const token = await storage.oauth.get(workspaceId);
+  if (token?.installationIdentity?.viewerId) {
+    return token.installationIdentity;
+  }
+
+  const identity = await withWorkspaceAccessToken(env, workspaceId, async (accessToken) => getInstallationIdentity(accessToken));
+  const installationIdentity = {
+    viewerId: identity.viewer?.id ?? "",
+    viewerName: identity.viewer?.name ?? null,
+    organizationId: identity.organization?.id ?? null,
+    organizationName: identity.organization?.name ?? null,
+    organizationUrlKey: identity.organization?.urlKey ?? null,
+  };
+
+  if (token) {
+    await storage.oauth.upsert({
+      ...token,
+      installationIdentity,
+    });
+  }
+
+  return installationIdentity;
+}
+
 async function getValidAccessToken(env: Env, workspaceId: string): Promise<string> {
   const storage = getStorage(env);
   const token = await storage.oauth.get(workspaceId);
@@ -77,7 +103,8 @@ async function getValidAccessToken(env: Env, workspaceId: string): Promise<strin
       ? new Date(Date.now() + Number(refreshed.expires_in) * 1000).toISOString()
       : new Date(Date.now() + 3600 * 1000).toISOString(),
     scopes: typeof refreshed.scope === 'string' ? refreshed.scope.split(/[\s,]+/).filter(Boolean) : token.scopes,
-    actorMode: 'app' as const
+    actorMode: 'app' as const,
+    installationIdentity: token.installationIdentity,
   };
   await storage.oauth.upsert(next);
   return next.accessToken;

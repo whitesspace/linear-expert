@@ -340,6 +340,16 @@ class D1OAuthStore implements OAuthStore {
     if (!row) {
       return null;
     }
+    let installationIdentity: OAuthTokenRecord["installationIdentity"] | undefined;
+    const rawJson = row.raw_json as string | undefined;
+    if (rawJson) {
+      try {
+        const parsed = JSON.parse(rawJson) as { installationIdentity?: OAuthTokenRecord["installationIdentity"] };
+        installationIdentity = parsed.installationIdentity;
+      } catch {
+        installationIdentity = undefined;
+      }
+    }
     return {
       workspaceId: row.workspace_id as string,
       accessToken: row.access_token as string,
@@ -347,6 +357,7 @@ class D1OAuthStore implements OAuthStore {
       expiresAt: row.expires_at as string,
       scopes: (row.scopes as string)?.split(",") ?? [],
       actorMode: "app",
+      installationIdentity,
     };
   }
 
@@ -354,14 +365,15 @@ class D1OAuthStore implements OAuthStore {
     await this.db
       .prepare(
         `INSERT INTO oauth_tokens (
-          workspace_id, access_token, refresh_token, expires_at, scopes, actor_mode
-        ) VALUES (?, ?, ?, ?, ?, ?)
+          workspace_id, access_token, refresh_token, expires_at, scopes, actor_mode, raw_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(workspace_id) DO UPDATE SET
           access_token = excluded.access_token,
           refresh_token = excluded.refresh_token,
           expires_at = excluded.expires_at,
           scopes = excluded.scopes,
-          actor_mode = excluded.actor_mode`
+          actor_mode = excluded.actor_mode,
+          raw_json = excluded.raw_json`
       )
       .bind(
         record.workspaceId,
@@ -370,6 +382,9 @@ class D1OAuthStore implements OAuthStore {
         record.expiresAt,
         record.scopes.join(","),
         record.actorMode,
+        JSON.stringify({
+          installationIdentity: record.installationIdentity ?? null,
+        }),
       )
       .run();
   }

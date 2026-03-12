@@ -46,6 +46,24 @@ export type AgentSessionCreateResult = {
   agentSessionId: string | null;
 };
 
+export interface AgentSessionExternalUrl {
+  label: string;
+  url: string;
+}
+
+export function buildAgentSessionStatusUrl(origin: string, agentSessionId: string): string {
+  return `${origin}/agent-sessions/${encodeURIComponent(agentSessionId)}`;
+}
+
+export function buildAgentSessionExternalUrls(origin: string, agentSessionId: string): AgentSessionExternalUrl[] {
+  return [
+    {
+      label: "查看处理状态",
+      url: buildAgentSessionStatusUrl(origin, agentSessionId),
+    },
+  ];
+}
+
 export async function createAgentActivity(
   env: Env,
   workspaceId: string,
@@ -76,25 +94,83 @@ export async function createAgentSessionOnComment(
   env: Env,
   workspaceId: string,
   commentId: string,
+  externalUrls?: AgentSessionExternalUrl[],
 ): Promise<AgentSessionCreateResult> {
   return withWorkspaceAccessToken<AgentSessionCreateResult>(env, workspaceId, async (accessToken: string) => {
     const { createLinearSdkClient, sdkRequest } = await import("./sdk");
     const client = createLinearSdkClient(accessToken);
     const data = await sdkRequest<any>(
       client,
-      `mutation($commentId: String!) {
-        agentSessionCreateOnComment(input: { commentId: $commentId }) {
+      `mutation($commentId: String!, $externalUrls: [AgentSessionExternalUrlInput!]) {
+        agentSessionCreateOnComment(input: { commentId: $commentId, externalUrls: $externalUrls }) {
           success
           agentSession { id }
         }
       }`,
-      { commentId },
+      { commentId, externalUrls },
     );
 
     const result = data?.agentSessionCreateOnComment ?? {};
     return {
       success: Boolean(result.success),
       agentSessionId: result?.agentSession?.id ?? null,
+    };
+  });
+}
+
+export async function createAgentSessionOnIssue(
+  env: Env,
+  workspaceId: string,
+  issueId: string,
+  externalUrls?: AgentSessionExternalUrl[],
+): Promise<AgentSessionCreateResult> {
+  return withWorkspaceAccessToken<AgentSessionCreateResult>(env, workspaceId, async (accessToken: string) => {
+    const { createLinearSdkClient, sdkRequest } = await import("./sdk");
+    const client = createLinearSdkClient(accessToken);
+    const data = await sdkRequest<any>(
+      client,
+      `mutation($issueId: String!, $externalUrls: [AgentSessionExternalUrlInput!]) {
+        agentSessionCreateOnIssue(input: { issueId: $issueId, externalUrls: $externalUrls }) {
+          success
+          agentSession { id }
+        }
+      }`,
+      { issueId, externalUrls },
+    );
+
+    const result = data?.agentSessionCreateOnIssue ?? {};
+    return {
+      success: Boolean(result.success),
+      agentSessionId: result?.agentSession?.id ?? null,
+    };
+  });
+}
+
+export async function updateAgentSessionExternalUrls(
+  env: Env,
+  workspaceId: string,
+  agentSessionId: string,
+  externalUrls: AgentSessionExternalUrl[],
+): Promise<{ success: boolean }> {
+  return withWorkspaceAccessToken<{ success: boolean }>(env, workspaceId, async (accessToken: string) => {
+    const { createLinearSdkClient, sdkRequest } = await import("./sdk");
+    const client = createLinearSdkClient(accessToken);
+    const data = await sdkRequest<any>(
+      client,
+      `mutation($id: String!, $input: AgentSessionUpdateExternalUrlInput!) {
+        agentSessionUpdateExternalUrl(id: $id, input: $input) {
+          success
+          agentSession { id }
+        }
+      }`,
+      {
+        id: agentSessionId,
+        input: { externalUrls },
+      },
+    );
+
+    return {
+      success: Boolean(data?.agentSessionUpdateExternalUrl?.success),
     };
   });
 }
