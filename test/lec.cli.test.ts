@@ -75,6 +75,86 @@ async function withMockLinear<T>(run: (ctx: { baseUrl: string; requests: Capture
       return;
     }
 
+    if (req.url === "/internal/linear/documents/create") {
+      res.end(JSON.stringify({
+        ok: true,
+        result: { documentId: "doc_created" },
+      }));
+      return;
+    }
+
+    if (req.url === "/internal/linear/customers/create") {
+      res.end(JSON.stringify({
+        ok: true,
+        result: { customerId: "cust_created" },
+      }));
+      return;
+    }
+
+    if (req.url === "/internal/linear/customer-needs/create") {
+      res.end(JSON.stringify({
+        ok: true,
+        result: { customerNeedId: "need_created" },
+      }));
+      return;
+    }
+
+    if (req.url === "/internal/linear/project-updates/create") {
+      res.end(JSON.stringify({
+        ok: true,
+        result: { projectUpdateId: "pu_created" },
+      }));
+      return;
+    }
+
+    if (req.url === "/internal/linear/comments/update") {
+      res.end(JSON.stringify({
+        ok: true,
+        result: { success: true },
+      }));
+      return;
+    }
+
+    if (req.url === "/internal/linear/attachments/delete") {
+      res.end(JSON.stringify({
+        ok: true,
+        result: { success: true },
+      }));
+      return;
+    }
+
+    if (req.url === "/internal/linear/issues/archive") {
+      res.end(JSON.stringify({
+        ok: true,
+        result: { success: true },
+      }));
+      return;
+    }
+
+    if (req.url === "/internal/linear/issues/delete") {
+      res.end(JSON.stringify({
+        ok: true,
+        result: { success: true },
+      }));
+      return;
+    }
+
+    if (req.url === "/internal/linear/triage/move") {
+      res.end(JSON.stringify({
+        ok: true,
+        result: { success: true },
+      }));
+      return;
+    }
+
+    if (req.url === "/internal/linear/workflow-states/create") {
+      res.end(JSON.stringify({
+        ok: true,
+        result: { workflowStateId: "state_created" },
+      }));
+      return;
+    }
+
     res.statusCode = 404;
     res.end(JSON.stringify({ ok: false, error: "unexpected_path", path: req.url }));
   });
@@ -135,11 +215,20 @@ async function runCli(args: string[], envOverrides: Record<string, string> = {})
 async function run() {
   const help = await runCli(["--help"]);
   assert.equal(help.status, 0);
-  assert.match(help.stdout, /triage list --team WS/);
-  assert.match(help.stdout, /initiatives create --team WS --title/);
-  assert.match(help.stdout, /cycles get --team WS --id <cycleId>/);
-  assert.match(help.stdout, /cycles archive --team WS --id <cycleId>/);
-  assert.match(help.stdout, /labels create --team WS --title <name> \[--description <md>\] \[--color <hex>\]/);
+  assert.match(help.stdout, /triage list --team PCF/);
+  assert.match(help.stdout, /initiatives create --team PCF --title/);
+  assert.match(help.stdout, /cycles get --team PCF --id <cycleId>/);
+  assert.match(help.stdout, /cycles archive --team PCF --id <cycleId>/);
+  assert.match(help.stdout, /labels create --team PCF --title <name> \[--description <md>\] \[--color <hex>\]/);
+  assert.match(help.stdout, /documents create --team PCF --title <name> --body <md>/);
+  assert.match(help.stdout, /customers create --team PCF --title <name>/);
+  assert.match(help.stdout, /customer-needs create --team PCF --body <md> --customer <customerId>/);
+  assert.match(help.stdout, /project-updates create --team PCF --project <projectId> --body <md>/);
+  assert.match(help.stdout, /comment update --team PCF --id <commentId> --body <md>/);
+  assert.match(help.stdout, /attachment delete --team PCF --id <attachmentId>/);
+  assert.match(help.stdout, /issue archive --team PCF --issue <id\|PCF-123>/);
+  assert.match(help.stdout, /triage move --team PCF --issue <id\|PCF-123>/);
+  assert.match(help.stdout, /workflow-states create --team PCF --title <name>/);
 
   await withMockLinear(async ({ baseUrl, requests }) => {
     const baseEnv = { LEC_BASE_URL: baseUrl };
@@ -197,6 +286,136 @@ async function run() {
     ], baseEnv);
     assert.equal(labelResult.status, 0, labelResult.stderr);
 
+    const documentResult = await runCli([
+      "documents",
+      "create",
+      "--team",
+      "WS",
+      "--title",
+      "Spec",
+      "--body",
+      "# Body",
+      "--project",
+      "proj_1",
+      "--json",
+    ], baseEnv);
+    assert.equal(documentResult.status, 0, documentResult.stderr);
+
+    const customerResult = await runCli([
+      "customers",
+      "create",
+      "--team",
+      "WS",
+      "--title",
+      "Placify",
+      "--json",
+    ], baseEnv);
+    assert.equal(customerResult.status, 0, customerResult.stderr);
+
+    const customerNeedResult = await runCli([
+      "customer-needs",
+      "create",
+      "--team",
+      "WS",
+      "--body",
+      "Need bulk export",
+      "--customer",
+      "cust_1",
+      "--json",
+    ], baseEnv);
+    assert.equal(customerNeedResult.status, 0, customerNeedResult.stderr);
+
+    const projectUpdateResult = await runCli([
+      "project-updates",
+      "create",
+      "--team",
+      "WS",
+      "--project",
+      "proj_1",
+      "--body",
+      "Week update",
+      "--status",
+      "onTrack",
+      "--json",
+    ], baseEnv);
+    assert.equal(projectUpdateResult.status, 0, projectUpdateResult.stderr);
+
+    const commentUpdateResult = await runCli([
+      "comment",
+      "update",
+      "--team",
+      "WS",
+      "--id",
+      "comment_1",
+      "--body",
+      "Updated",
+      "--json",
+    ], baseEnv);
+    assert.equal(commentUpdateResult.status, 0, commentUpdateResult.stderr);
+
+    const attachmentDeleteResult = await runCli([
+      "attachment",
+      "delete",
+      "--team",
+      "WS",
+      "--id",
+      "attachment_1",
+      "--json",
+    ], baseEnv);
+    assert.equal(attachmentDeleteResult.status, 0, attachmentDeleteResult.stderr);
+
+    const issueArchiveResult = await runCli([
+      "issue",
+      "archive",
+      "--team",
+      "WS",
+      "--issue",
+      "issue_1",
+      "--json",
+    ], baseEnv);
+    assert.equal(issueArchiveResult.status, 0, issueArchiveResult.stderr);
+
+    const issueDeleteResult = await runCli([
+      "issue",
+      "delete",
+      "--team",
+      "WS",
+      "--issue",
+      "issue_1",
+      "--json",
+    ], baseEnv);
+    assert.equal(issueDeleteResult.status, 0, issueDeleteResult.stderr);
+
+    const triageMoveResult = await runCli([
+      "triage",
+      "move",
+      "--team",
+      "WS",
+      "--issue",
+      "issue_1",
+      "--assignee",
+      "00000000-0000-0000-0000-000000000123",
+      "--state",
+      "state_1",
+      "--project",
+      "proj_1",
+      "--json",
+    ], baseEnv);
+    assert.equal(triageMoveResult.status, 0, triageMoveResult.stderr);
+
+    const workflowStateCreateResult = await runCli([
+      "workflow-states",
+      "create",
+      "--team",
+      "WS",
+      "--title",
+      "Backlog",
+      "--state",
+      "unstarted",
+      "--json",
+    ], baseEnv);
+    assert.equal(workflowStateCreateResult.status, 0, workflowStateCreateResult.stderr);
+
     const cycleGetRequest = requests.find((item) => item.path === "/internal/linear/cycles/get");
     assert.deepEqual(cycleGetRequest?.body, { workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211", id: "cycle_123" });
 
@@ -230,6 +449,77 @@ async function run() {
       name: "Bug",
       color: "#ff0000",
       description: null,
+    });
+
+    const documentCreateRequest = requests.find((item) => item.path === "/internal/linear/documents/create");
+    assert.deepEqual(documentCreateRequest?.body, {
+      workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211",
+      title: "Spec",
+      content: "# Body",
+      projectId: "proj_1",
+    });
+
+    const customerCreateRequest = requests.find((item) => item.path === "/internal/linear/customers/create");
+    assert.deepEqual(customerCreateRequest?.body, {
+      workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211",
+      name: "Placify",
+    });
+
+    const customerNeedCreateRequest = requests.find((item) => item.path === "/internal/linear/customer-needs/create");
+    assert.deepEqual(customerNeedCreateRequest?.body, {
+      workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211",
+      body: "Need bulk export",
+      customerId: "cust_1",
+    });
+
+    const projectUpdateCreateRequest = requests.find((item) => item.path === "/internal/linear/project-updates/create");
+    assert.deepEqual(projectUpdateCreateRequest?.body, {
+      workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211",
+      projectId: "proj_1",
+      body: "Week update",
+      health: "onTrack",
+    });
+
+    const commentUpdateRequest = requests.find((item) => item.path === "/internal/linear/comments/update");
+    assert.deepEqual(commentUpdateRequest?.body, {
+      workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211",
+      id: "comment_1",
+      body: "Updated",
+    });
+
+    const attachmentDeleteRequest = requests.find((item) => item.path === "/internal/linear/attachments/delete");
+    assert.deepEqual(attachmentDeleteRequest?.body, {
+      workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211",
+      id: "attachment_1",
+    });
+
+    const issueArchiveRequest = requests.find((item) => item.path === "/internal/linear/issues/archive");
+    assert.deepEqual(issueArchiveRequest?.body, {
+      workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211",
+      id: "issue_1",
+    });
+
+    const issueDeleteRequest = requests.find((item) => item.path === "/internal/linear/issues/delete");
+    assert.deepEqual(issueDeleteRequest?.body, {
+      workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211",
+      id: "issue_1",
+    });
+
+    const triageMoveRequest = requests.find((item) => item.path === "/internal/linear/triage/move");
+    assert.deepEqual(triageMoveRequest?.body, {
+      workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211",
+      issueId: "issue_1",
+      assigneeId: "00000000-0000-0000-0000-000000000123",
+      stateId: "state_1",
+      projectId: "proj_1",
+    });
+
+    const workflowStateCreateRequest = requests.find((item) => item.path === "/internal/linear/workflow-states/create");
+    assert.deepEqual(workflowStateCreateRequest?.body, {
+      workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211",
+      teamId: "team_test",
+      name: "Backlog",
+      type: "unstarted",
     });
   });
 

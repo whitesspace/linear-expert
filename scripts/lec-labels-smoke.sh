@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-set -a; source ~/.openclaw/keys/.env; set +a
+source "$(dirname "$0")/lec-smoke-lib.sh"
+load_lec_smoke_env
 
 NAME="SmokeLabel $(date +%s)"
 
