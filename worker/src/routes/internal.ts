@@ -301,24 +301,18 @@ async function handleResolve(request: Request, env: Env): Promise<Response> {
       );
     }
 
-    const token = await storage.oauth.get(workspaceId);
-    if (!token?.accessToken) {
-      return json(
-        {
-          ok: false,
-          error: "no_oauth_token",
-          message: `No OAuth token stored for workspace ${workspaceId}. Visit /oauth/start to authorize.`,
-        },
-        { status: 401 },
-      );
-    }
+    // Use shared token refresh logic.
+    const { withWorkspaceAccessToken, getInstallationIdentity } = await import("../linear/client");
 
-    // identity is useful for debugging; resolves org id.
-    const identity = await getInstallationIdentity(token.accessToken);
+    const identity = await withWorkspaceAccessToken(env, workspaceId, async (accessToken) => {
+      // identity is useful for debugging; resolves org id.
+      return getInstallationIdentity(accessToken);
+    });
 
     // Resolve teamId by teamKey.
     const { createLinearSdkClient, sdkRequest } = await import("../linear/sdk");
-    const client = createLinearSdkClient(token.accessToken);
+    const accessToken = await withWorkspaceAccessToken(env, workspaceId, async (t) => t);
+    const client = createLinearSdkClient(accessToken);
 
     type TeamsByKeyResponse = {
       teams?: {
