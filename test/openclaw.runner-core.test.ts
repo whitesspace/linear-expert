@@ -77,6 +77,26 @@ async function run() {
   }
 
   {
+    const result = await runOpenClaw("hello", "session_text", {
+      cliBin: "openclaw",
+      cliArgs: "agent --json --message",
+      timeoutMs: 1000,
+      spawnImpl() {
+        const child = new FakeChildProcess();
+        queueMicrotask(() => {
+          child.stdout.emit("data", Buffer.from("I checked the issue and will reply with a summary."));
+          child.stderr.emit("data", Buffer.from("Session ID: abc-123\n"));
+          child.emit("close", 0);
+        });
+        return child;
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.intent?.actions?.[0]?.kind, "comment");
+    assert.match(result.intent?.actions?.[0]?.body ?? "", /reply with a summary/);
+  }
+
+  {
     const controller = new AbortController();
     let childRef = null;
     const resultPromise = runOpenClaw("hello", "session_4", {

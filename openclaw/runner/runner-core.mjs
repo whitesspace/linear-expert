@@ -64,6 +64,17 @@ function extractIntentCandidate(value) {
   return null;
 }
 
+function stripAnsi(text) {
+  return String(text || "").replace(/\u001B\[[0-9;]*m/g, "");
+}
+
+function extractPlainTextReply(stdout) {
+  const text = stripAnsi(stdout).trim();
+  if (!text) return null;
+  if (text.startsWith("{") || text.startsWith("[")) return null;
+  return text.slice(0, 4000);
+}
+
 export function parseCliJsonOutput(stdout) {
   const trimmed = String(stdout || "").trim();
   if (!trimmed) return null;
@@ -173,6 +184,24 @@ export async function runOpenClaw(prompt, sessionId, options = {}) {
       if (intent) {
         finish({ ok: true, intent });
         return;
+      }
+      if ((code ?? 0) === 0) {
+        const replyBody = extractPlainTextReply(stdout);
+        if (replyBody) {
+          finish({
+            ok: true,
+            intent: {
+              actions: [
+                {
+                  kind: "comment",
+                  body: replyBody,
+                  reason: "plain_text_fallback",
+                },
+              ],
+            },
+          });
+          return;
+        }
       }
       finish({
         ok: false,
