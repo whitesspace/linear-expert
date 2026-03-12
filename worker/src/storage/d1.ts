@@ -102,7 +102,8 @@ class D1TaskStore implements TaskStore {
           id, source, event_type, webhook_id, workspace_id, organization_id,
           issue_id, issue_identifier, comment_id, actor_id, actor_name,
           payload_json, status, created_at, updated_at, lock_expires_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL)
+        ON CONFLICT(webhook_id) DO NOTHING`
       )
       .bind(
         id,
@@ -121,14 +122,20 @@ class D1TaskStore implements TaskStore {
         now,
       )
       .run();
-    return {
-      ...task,
-      id,
-      status: "pending",
-      createdAt: now,
-      updatedAt: now,
-      lockExpiresAt: null,
-    };
+
+    const persisted = await this.findByWebhookId(task.webhookId);
+    if (!persisted) {
+      throw new Error(`failed to persist task for webhook ${task.webhookId}`);
+    }
+    return persisted;
+  }
+
+  async findById(taskId: string): Promise<TaskRecord | null> {
+    const result = await this.db
+      .prepare(`SELECT * FROM tasks WHERE id = ? LIMIT 1`)
+      .bind(taskId)
+      .first();
+    return result ? mapTaskRow(result) : null;
   }
 
   async findByWebhookId(webhookId: string): Promise<TaskRecord | null> {

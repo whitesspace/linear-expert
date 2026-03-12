@@ -36,7 +36,6 @@ import { executeOpenClawIntent } from "../linear/intent-executor";
 import type { StorageAdapter } from "../storage/types";
 import { OpenClawIntentSchema } from "./invoke-intent";
 import { clearInflightSession } from "../linear/dedup";
-import { revokeSessionToken, verifySessionToken } from "../linear/session-token";
 import { completeSession, failSession, updateSessionActivity } from "../linear/session-lifecycle";
 
 const CommentRequestSchema = z.object({
@@ -216,18 +215,6 @@ const AgentRunResultSchema = z.object({
 }).refine((value) => (value.ok ? value.intent !== undefined : true), {
   message: "agent_run_result requires intent when ok=true",
 });
-
-/**
- * 验证会话令牌（Bearer Token）
- * 从 Authorization header 提取并验证
- */
-function getSessionTokenFromAuth(request: Request): string | null {
-  const authHeader = request.headers.get("authorization") || "";
-  if (!authHeader.startsWith("Bearer ")) {
-    return null;
-  }
-  return authHeader.slice("Bearer ".length).trim();
-}
 
 type LinearMutationResult =
   | Awaited<ReturnType<typeof postComment>>
@@ -537,22 +524,10 @@ export async function handleInternalRequest(
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/internal")) return null;
 
-  // 首先验证 internal secret
+  // internal 路由统一只接受 internal secret。
   const authError = assertInternalSecret(request, env);
   if (authError) {
-    // Internal secret 验证失败，尝试验证会话令牌
-    const sessionToken = getSessionTokenFromAuth(request);
-    if (!sessionToken) {
-      return authError;
-    }
-
-    const context = verifySessionToken(sessionToken);
-    if (!context) {
-      return json({ error: "invalid_or_expired_session_token" }, { status: 401 });
-    }
-
-    // 将上下文附加到请求（通过 env 或其他机制）
-    (request as any).sessionContext = context;
+    return authError;
   }
 
   if (url.pathname === "/internal/tasks" && request.method === "GET") {
@@ -1012,9 +987,8 @@ async function handleSubmitResult(request: Request, env: Env, storage: StorageAd
     return json({ error: "invalid payload", details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const existing = await storage.tasks.listByStatus({ status: "processing", limit: 1000 });
-  const task = existing.find((t) => t.id === taskId) || null;
-  if (!task) {
+  const task = await storage.tasks.findById(taskId);
+  if (!task || task.status !== "processing") {
     return json({ error: "task not found or not processing" }, { status: 404 });
   }
 
@@ -1092,16 +1066,28 @@ async function handleSubmitAgentRunResult(
   if (run.status !== "processing") {
     return json({ error: "run not processing" }, { status: 409 });
   }
+  const processingRun = run;
+
+  async function finalizeRun(status: "completed" | "failed") {
+    await updateSessionActivity(storage, processingRun.agentSessionId);
+    clearInflightSession(processingRun.agentSessionId);
+    if (status === "completed") {
+      await completeSession(storage, processingRun.agentSessionId);
+    } else {
+      await failSession(storage, processingRun.agentSessionId);
+    }
+    return storage.agentRuns.applyResult(runId, { status });
+  }
 
   if (!parsed.data.ok) {
-    await createAgentActivity(env, run.workspaceId, {
-      agentSessionId: run.agentSessionId,
+    await createAgentActivity(env, processingRun.workspaceId, {
+      agentSessionId: processingRun.agentSessionId,
       type: "error",
       content: {
         body: `OpenClaw 运行失败：${parsed.data.error ?? "unknown_error"}`,
       },
     });
-    const updated = await storage.agentRuns.applyResult(runId, { status: "failed" });
+    const updated = await finalizeRun("failed");
     return json({ run: updated });
   }
 
@@ -1109,14 +1095,14 @@ async function handleSubmitAgentRunResult(
   if (!intentParsed.success) {
     const detail = JSON.stringify(intentParsed.error.flatten());
     const raw = JSON.stringify(parsed.data.intent ?? null).slice(0, 800);
-    await createAgentActivity(env, run.workspaceId, {
-      agentSessionId: run.agentSessionId,
+    await createAgentActivity(env, processingRun.workspaceId, {
+      agentSessionId: processingRun.agentSessionId,
       type: "error",
       content: {
         body: `OpenClaw intent schema 无法解析。details=${detail} raw=${raw}`,
       },
     });
-    const updated = await storage.agentRuns.applyResult(runId, { status: "failed" });
+    const updated = await finalizeRun("failed");
     return json({ run: updated });
   }
 
@@ -1124,31 +1110,13 @@ async function handleSubmitAgentRunResult(
   const execResult = await executeOpenClawIntent({
     env,
     origin,
-    workspaceId: run.workspaceId,
-    agentSessionId: run.agentSessionId,
-    traceId: run.traceId,
+    workspaceId: processingRun.workspaceId,
+    agentSessionId: processingRun.agentSessionId,
+    traceId: processingRun.traceId,
     intent: intentParsed.data,
   });
 
-  // 更新会话活动
-  await updateSessionActivity(storage, run.agentSessionId);
-
-  // 清除 in-flight 标记
-  clearInflightSession(run.agentSessionId);
-
-  // 完成会话
-  if (execResult.ok) {
-    await completeSession(storage, run.agentSessionId);
-  } else {
-    await failSession(storage, run.agentSessionId);
-  }
-
-  const updated = await storage.agentRuns.applyResult(runId, { status: execResult.ok ? "completed" : "failed" });
-
-  // 撤销会话令牌
-  if (run.sessionToken) {
-    revokeSessionToken(run.sessionToken);
-  }
+  const updated = await finalizeRun(execResult.ok ? "completed" : "failed");
 
   return json({ run: updated });
 }

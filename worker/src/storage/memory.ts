@@ -26,6 +26,10 @@ class InMemoryTaskStore implements TaskStore {
   private tasks = new Map<string, TaskRecord>();
 
   async create(task: NewTaskRecord): Promise<TaskRecord> {
+    const existing = await this.findByWebhookId(task.webhookId);
+    if (existing) {
+      return existing;
+    }
     const now = ISO();
     const record: TaskRecord = {
       ...task,
@@ -37,6 +41,10 @@ class InMemoryTaskStore implements TaskStore {
     };
     this.tasks.set(record.id, record);
     return record;
+  }
+
+  async findById(taskId: string): Promise<TaskRecord | null> {
+    return this.tasks.get(taskId) ?? null;
   }
 
   async findByWebhookId(webhookId: string): Promise<TaskRecord | null> {
@@ -73,6 +81,9 @@ class InMemoryTaskStore implements TaskStore {
       return null;
     }
     const now = Date.now();
+    if (task.status !== "pending" && task.status !== "processing") {
+      return null;
+    }
     if (
       task.lockExpiresAt &&
       new Date(task.lockExpiresAt).getTime() > now &&

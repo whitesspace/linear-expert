@@ -6,7 +6,6 @@ import type { StorageAdapter } from "../storage/types";
 import { createAgentActivity } from "../linear/agent";
 import { clearStop, requestStop } from "../storage/stop";
 import { buildEnrichedPrompt, type PromptContext } from "../linear/prompt-builder";
-import { createSessionToken, type SessionContext, revokeSessionToken } from "../linear/session-token";
 import {
   isInflightSession,
   markInflightSession,
@@ -238,19 +237,6 @@ export async function handleInvokeRequest(
 
     let queuedRunId: string | null = null;
     if (hasSession) {
-      // 生成会话令牌
-      const sessionContext: SessionContext = {
-        traceId,
-        agentSessionId: payload.data.agentSessionId!,
-        workspaceId: payload.data.workspaceId!,
-        issueId: (payload.data.issue as any)?.id,
-        issueIdentifier: (payload.data.issue as any)?.identifier,
-        issueTitle: (payload.data.issue as any)?.title,
-        issueUrl: (payload.data.issue as any)?.url,
-      };
-
-      const sessionToken = createSessionToken(sessionContext);
-
       const runPayload = {
         prompt: firstThoughtPrompt,
         context: {
@@ -272,7 +258,6 @@ export async function handleInvokeRequest(
         },
         api: {
           baseUrl: origin,
-          token: sessionToken,
         },
       };
       const run = await storage.agentRuns.create({
@@ -281,7 +266,6 @@ export async function handleInvokeRequest(
         workspaceId: payload.data.workspaceId!,
         eventType: payload.data.type,
         payloadJson: JSON.stringify(runPayload),
-        sessionToken,
       });
       queuedRunId = run.id;
     }

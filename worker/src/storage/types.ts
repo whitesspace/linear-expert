@@ -24,6 +24,7 @@ import type {
 
 export interface TaskStore {
   create(task: NewTaskRecord): Promise<TaskRecord>;
+  findById(taskId: string): Promise<TaskRecord | null>;
   findByWebhookId(webhookId: string): Promise<TaskRecord | null>;
   listByStatus(filter: TaskFilter): Promise<TaskRecord[]>;
   claim(taskId: string, lockDurationSeconds: number): Promise<TaskRecord | null>;

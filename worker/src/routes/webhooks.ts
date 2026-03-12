@@ -10,6 +10,7 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
     return json({ error: "webhook secret missing" }, { status: 500 });
   }
   const rawBody = await request.text();
+  const timestamp = request.headers.get("linear-timestamp");
   const signature =
     request.headers.get("linear-signature") ||
     request.headers.get("x-linear-signature") ||
@@ -18,6 +19,7 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
     secret: env.LINEAR_WEBHOOK_SECRET,
     payload: rawBody,
     headerSignature: signature,
+    headerTimestamp: timestamp,
   });
   if (!valid) {
     return json({ error: "invalid signature" }, { status: 401 });
@@ -62,16 +64,27 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
 
     const url = new URL(request.url);
     const invokeUrl = `${url.origin}/internal/invoke/agent-session`;
-    const resp = await fetch(invokeUrl, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${env.OPENCLAW_INTERNAL_SECRET}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(invokePayload),
-    });
+    try {
+      const resp = await fetch(invokeUrl, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${env.OPENCLAW_INTERNAL_SECRET}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(invokePayload),
+      });
 
-    return json({ status: "accepted", kind: "agentSession", invokeStatus: resp.status }, { status: 200 });
+      if (!resp.ok) {
+        const message = (await resp.text()).slice(0, 800);
+        console.error("agent_session invoke failed", { status: resp.status, message });
+        return json({ error: "invoke_failed", invokeStatus: resp.status }, { status: 502 });
+      }
+
+      return json({ status: "accepted", kind: "agentSession", invokeStatus: resp.status }, { status: 200 });
+    } catch (error) {
+      console.error("agent_session invoke transport error", error);
+      return json({ error: "invoke_failed" }, { status: 502 });
+    }
   }
 
   // WS-37: Comment fallback invocation (C):
@@ -97,7 +110,7 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
           return json({ status: "accepted", kind: "comment_fallback", reason: "already_has_session" }, { status: 200 });
         }
         console.error("comment_fallback create session error", error);
-        return json({ status: "error", kind: "comment_fallback", message }, { status: 200 });
+        return json({ error: "comment_fallback_failed", kind: "comment_fallback", message }, { status: 502 });
       }
     }
   }

@@ -10,7 +10,6 @@ export interface NewAgentRunRecord {
   workspaceId: string;
   eventType: string;
   payloadJson: string;
-  sessionToken?: string; // 可选：会话令牌
 }
 
 export interface AgentRunRecord extends NewAgentRunRecord {
@@ -19,7 +18,6 @@ export interface AgentRunRecord extends NewAgentRunRecord {
   createdAt: string;
   updatedAt: string;
   lockExpiresAt: string | null;
-  sessionToken?: string; // 会话令牌（非持久化）
 }
 
 export interface AgentRunFilter {

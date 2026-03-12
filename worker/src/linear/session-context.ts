@@ -135,12 +135,10 @@ export async function restoreSessionContext(
 ): Promise<RestoredSessionContext> {
   try {
     // 1. 从 storage 获取持久化的会话记录（如果提供了 storage）
-    // @ts-expect-error - env has storage property at runtime
-    const storageToUse = storage || (env as any).storage;
-    if (!storageToUse) {
+    if (!storage) {
       return { exists: false };
     }
-    const sessionRecord = await storageToUse.sessions.findByAgentSessionId(agentSessionId);
+    const sessionRecord = await storage.sessions.findByAgentSessionId(agentSessionId);
     
     if (!sessionRecord) {
       return { exists: false };
