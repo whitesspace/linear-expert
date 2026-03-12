@@ -35,6 +35,7 @@ import { createIssueLabel, getIssueLabel, listIssueLabels, restoreIssueLabel, re
 import { executeOpenClawIntent } from "../linear/intent-executor";
 import type { StorageAdapter } from "../storage/types";
 import { OpenClawIntentSchema } from "./invoke-intent";
+import { revokeSessionToken, verifySessionToken } from "../linear/session-token";
 
 const CommentRequestSchema = z.object({
   workspaceId: z.string().min(1),
@@ -213,6 +214,18 @@ const AgentRunResultSchema = z.object({
 }).refine((value) => (value.ok ? value.intent !== undefined : true), {
   message: "agent_run_result requires intent when ok=true",
 });
+
+/**
+ * 验证会话令牌（Bearer Token）
+ * 从 Authorization header 提取并验证
+ */
+function getSessionTokenFromAuth(request: Request): string | null {
+  const authHeader = request.headers.get("authorization") || "";
+  if (!authHeader.startsWith("Bearer ")) {
+    return null;
+  }
+  return authHeader.slice("Bearer ".length).trim();
+}
 
 type LinearMutationResult =
   | Awaited<ReturnType<typeof postComment>>
@@ -522,8 +535,23 @@ export async function handleInternalRequest(
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/internal")) return null;
 
+  // 首先验证 internal secret
   const authError = assertInternalSecret(request, env);
-  if (authError) return authError;
+  if (authError) {
+    // Internal secret 验证失败，尝试验证会话令牌
+    const sessionToken = getSessionTokenFromAuth(request);
+    if (!sessionToken) {
+      return authError;
+    }
+
+    const context = verifySessionToken(sessionToken);
+    if (!context) {
+      return json({ error: "invalid_or_expired_session_token" }, { status: 401 });
+    }
+
+    // 将上下文附加到请求（通过 env 或其他机制）
+    (request as any).sessionContext = context;
+  }
 
   if (url.pathname === "/internal/tasks" && request.method === "GET") {
     return handleListTasks(url, storage);
@@ -1100,5 +1128,11 @@ async function handleSubmitAgentRunResult(
     intent: intentParsed.data,
   });
   const updated = await storage.agentRuns.applyResult(runId, { status: execResult.ok ? "completed" : "failed" });
+
+  // 撤销会话令牌
+  if (run.sessionToken) {
+    revokeSessionToken(run.sessionToken);
+  }
+
   return json({ run: updated });
 }
