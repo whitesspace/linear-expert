@@ -24,6 +24,8 @@ export const HELP_LINES = [
   "COMMANDS:",
   "  auth status",
   "  bootstrap project-crud-issues --team PCF --project <linear project url>",
+  "  search issues --team PCF --query <text> [--project <projectId>] [--state <StateName>] [--assignee <userId>] [--label <label>]",
+  "  search all --team PCF --query <text> [--limit 20]",
   "",
   "  issue create --team PCF --title <t> [--description <md>] [--project <projectId>]",
   "  issue get --team PCF --issue <PCF-123>",
@@ -123,6 +125,40 @@ async function printPost(flags, path, body, plainLines) {
   printResult(flags, result, plainLines);
 }
 
+const SEARCH_SCOPE_FILTERS = {
+  issues: new Set(["query", "project", "state", "assignee", "label", "limit"]),
+  documents: new Set(["query", "project", "limit"]),
+  projects: new Set(["query", "limit"]),
+  customers: new Set(["query", "limit"]),
+  "customer-needs": new Set(["query", "project", "customer", "limit"]),
+  "project-updates": new Set(["query", "project", "limit"]),
+  triage: new Set(["query", "state", "assignee", "project", "limit"]),
+  all: new Set(["query", "project", "state", "assignee", "label", "customer", "limit"]),
+};
+
+function validateSearchFlags(scope, flags) {
+  const allowed = SEARCH_SCOPE_FILTERS[scope];
+  if (!allowed) fail(`Unknown search scope: ${scope}`, 2);
+
+  const provided = [
+    ["query", flags.query],
+    ["project", flags.project],
+    ["state", flags.state],
+    ["assignee", flags.assignee],
+    ["label", flags.label],
+    ["customer", flags.customer],
+    ["limit", flags.limit],
+  ];
+
+  for (const [name, value] of provided) {
+    if (value === undefined) continue;
+    if (!allowed.has(name)) fail(`--${name} is not supported for search ${scope}`, 2);
+  }
+
+  const hasFilter = provided.some(([name, value]) => name !== "limit" && value !== undefined);
+  if (!hasFilter) fail("search requires at least one filter", 2);
+}
+
 export async function dispatchCommand(args, flags) {
   const [cmd, sub] = args;
   if (cmd === "auth" && sub === "status") {
@@ -168,6 +204,25 @@ export async function dispatchCommand(args, flags) {
       children.push({ title: child.title, result: result?.result?.issue ?? null });
     }
     printResult(flags, { ok: true, parent: parentRes?.result?.issue ?? null, children }, ["created parent + sub-issues"]);
+    return;
+  }
+
+  if (cmd === "search") {
+    if (!sub) fail("search scope required", 2);
+    validateSearchFlags(sub, flags);
+    const { workspaceId, teamId } = await requireWorkspace(flags);
+    await printPost(flags, "/internal/linear/search", {
+      workspaceId,
+      teamId,
+      scope: sub,
+      query: flags.query,
+      state: flags.state,
+      assignee: flags.assignee,
+      project: flags.project,
+      label: flags.label,
+      customer: flags.customer,
+      limit: flags.limit,
+    });
     return;
   }
 

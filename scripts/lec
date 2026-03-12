@@ -30,6 +30,8 @@ function parseArgs(args) {
     else if (arg === "--issue") out.issue = args[++i];
     else if (arg === "--initiative") out.initiative = args[++i];
     else if (arg === "--customer") out.customer = args[++i];
+    else if (arg === "--query") out.query = args[++i];
+    else if (arg === "--label") out.label = args[++i];
     else if (arg === "--id") out.id = args[++i];
     else if (arg === "--title") out.title = args[++i];
     else if (arg === "--status") out.status = args[++i];

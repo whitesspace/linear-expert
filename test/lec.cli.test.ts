@@ -155,6 +155,24 @@ async function withMockLinear<T>(run: (ctx: { baseUrl: string; requests: Capture
       return;
     }
 
+    if (req.url === "/internal/linear/search") {
+      res.end(JSON.stringify({
+        ok: true,
+        result: {
+          success: true,
+          scope: body.scope ?? "issues",
+          items: [
+            {
+              entityType: String(body.scope ?? "issues").replace(/s$/, ""),
+              id: "search_1",
+              title: "Search Hit",
+            },
+          ],
+        },
+      }));
+      return;
+    }
+
     res.statusCode = 404;
     res.end(JSON.stringify({ ok: false, error: "unexpected_path", path: req.url }));
   });
@@ -229,6 +247,8 @@ async function run() {
   assert.match(help.stdout, /issue archive --team PCF --issue <id\|PCF-123>/);
   assert.match(help.stdout, /triage move --team PCF --issue <id\|PCF-123>/);
   assert.match(help.stdout, /workflow-states create --team PCF --title <name>/);
+  assert.match(help.stdout, /search issues --team PCF --query <text>/);
+  assert.match(help.stdout, /search all --team PCF --query <text>/);
 
   await withMockLinear(async ({ baseUrl, requests }) => {
     const baseEnv = { LEC_BASE_URL: baseUrl };
@@ -416,6 +436,45 @@ async function run() {
     ], baseEnv);
     assert.equal(workflowStateCreateResult.status, 0, workflowStateCreateResult.stderr);
 
+    const searchIssuesResult = await runCli([
+      "search",
+      "issues",
+      "--query",
+      "oauth timeout",
+      "--state",
+      "In Progress",
+      "--assignee",
+      "user_1",
+      "--project",
+      "proj_1",
+      "--limit",
+      "10",
+      "--json",
+    ], baseEnv);
+    assert.equal(searchIssuesResult.status, 0, searchIssuesResult.stderr);
+
+    const searchAllResult = await runCli([
+      "search",
+      "all",
+      "--query",
+      "release note",
+      "--limit",
+      "5",
+      "--json",
+    ], baseEnv);
+    assert.equal(searchAllResult.status, 0, searchAllResult.stderr);
+
+    const invalidSearchResult = await runCli([
+      "search",
+      "projects",
+      "--query",
+      "bridge",
+      "--state",
+      "planned",
+    ], baseEnv);
+    assert.equal(invalidSearchResult.status, 2);
+    assert.match(invalidSearchResult.stderr, /--state is not supported for search projects/);
+
     const cycleGetRequest = requests.find((item) => item.path === "/internal/linear/cycles/get");
     assert.deepEqual(cycleGetRequest?.body, { workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211", id: "cycle_123" });
 
@@ -520,6 +579,27 @@ async function run() {
       teamId: "team_test",
       name: "Backlog",
       type: "unstarted",
+    });
+
+    const searchIssuesRequest = requests.find((item) => item.path === "/internal/linear/search" && item.body.scope === "issues");
+    assert.deepEqual(searchIssuesRequest?.body, {
+      workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211",
+      teamId: "team_test",
+      scope: "issues",
+      query: "oauth timeout",
+      state: "In Progress",
+      assignee: "user_1",
+      project: "proj_1",
+      limit: 10,
+    });
+
+    const searchAllRequest = requests.find((item) => item.path === "/internal/linear/search" && item.body.scope === "all");
+    assert.deepEqual(searchAllRequest?.body, {
+      workspaceId: "43f90090-729f-4d7f-98d9-6693104cb211",
+      teamId: "team_test",
+      scope: "all",
+      query: "release note",
+      limit: 5,
     });
   });
 

@@ -13,7 +13,8 @@ type RouteCase = {
   name: string;
   path: string;
   body: Record<string, unknown>;
-  expectedQuery: string;
+  expectedQuery?: string;
+  expectedQueries?: string[];
 };
 
 function buildEnv(): TestEnv {
@@ -27,6 +28,25 @@ function buildEnv(): TestEnv {
 }
 
 function mockGraphQLResponse(query: string, variables: Record<string, unknown>) {
+  if (query.includes("issues(") && query.includes("identifier") && query.includes("assignee")) {
+    return {
+      data: {
+        issues: {
+          nodes: [{
+            id: "issue_1",
+            identifier: "PCF-1",
+            title: "OAuth timeout on callback",
+            url: "https://linear.app/issue/PCF-1",
+            state: { id: "state_1", name: "In Progress", type: "started" },
+            assignee: { id: "user_1", name: "Alice" },
+            project: { id: "proj_1", name: "Bridge" },
+            labels: { nodes: [{ id: "label_1", name: "bug" }] },
+          }],
+        },
+      },
+    };
+  }
+
   if (query.includes("documents(")) {
     return {
       data: {
@@ -334,6 +354,26 @@ function mockGraphQLResponse(query: string, variables: Record<string, unknown>) 
     };
   }
 
+  if (query.includes("projects {") && query.includes("nodes { id name description state }")) {
+    return {
+      data: {
+        ...(query.includes("team(id: $teamId)")
+          ? {
+              team: {
+                projects: {
+                  nodes: [{ id: "proj_1", name: "Bridge", description: "Bridge rollout", state: "planned" }],
+                },
+              },
+            }
+          : {
+              projects: {
+                nodes: [{ id: "proj_1", name: "Bridge", description: "Bridge rollout", state: "planned" }],
+              },
+            }),
+      },
+    };
+  }
+
   throw new Error(`unexpected GraphQL query: ${query}`);
 }
 
@@ -397,6 +437,8 @@ async function run() {
     { name: "workflow states create", path: "/internal/linear/workflow-states/create", body: { workspaceId: "ws_1", teamId: "team_1", name: "Backlog", type: "unstarted" }, expectedQuery: "workflowStateCreate(" },
     { name: "workflow states update", path: "/internal/linear/workflow-states/update", body: { workspaceId: "ws_1", id: "state_1", name: "Ready" }, expectedQuery: "workflowStateUpdate(" },
     { name: "workflow states archive", path: "/internal/linear/workflow-states/archive", body: { workspaceId: "ws_1", id: "state_1" }, expectedQuery: "workflowStateArchive(" },
+    { name: "search issues", path: "/internal/linear/search", body: { workspaceId: "ws_1", teamId: "team_1", scope: "issues", query: "oauth", state: "In Progress", assignee: "user_1", project: "proj_1", label: "bug", limit: 10 }, expectedQuery: "issues(" },
+    { name: "search all", path: "/internal/linear/search", body: { workspaceId: "ws_1", teamId: "team_1", scope: "all", query: "bridge", limit: 10 }, expectedQueries: ["issues(", "documents(", "projects {", "customers(", "customerNeeds(", "projectUpdates("] },
   ];
 
   try {
@@ -419,8 +461,16 @@ async function run() {
   }
 
   for (const testCase of cases) {
-    const matched = calls.find((call) => call.query.includes(testCase.expectedQuery));
-    assert.ok(matched, `missing GraphQL call for ${testCase.name}`);
+    if (testCase.expectedQuery) {
+      const matched = calls.find((call) => call.query.includes(testCase.expectedQuery!));
+      assert.ok(matched, `missing GraphQL call for ${testCase.name}`);
+      continue;
+    }
+
+    for (const expectedQuery of testCase.expectedQueries ?? []) {
+      const matched = calls.find((call) => call.query.includes(expectedQuery));
+      assert.ok(matched, `missing GraphQL call ${expectedQuery} for ${testCase.name}`);
+    }
   }
 
   console.log("linear.capabilities.routes.test passed");
