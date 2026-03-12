@@ -5,6 +5,11 @@ import type {
   NewAgentRunRecord,
 } from "../domain/agent-run";
 import type {
+  CreateAgentSessionInput,
+  AgentSessionRecord,
+  AgentSessionContextRecord,
+} from "../domain/agent-session";
+import type {
   NewTaskRecord,
   OAuthTokenRecord,
   ReplyDraft,
@@ -13,7 +18,7 @@ import type {
   TaskRecord,
   TaskResultPatch,
 } from "../domain/task";
-import type { AgentRunStore, OAuthStore, ReplyStore, StorageAdapter, TaskStore, TraceStore } from "./types";
+import type { AgentRunStore, OAuthStore, ReplyStore, StorageAdapter, TaskStore, TraceStore, SessionStore, SessionContextStore } from "./types";
 
 const ISO = () => new Date().toISOString();
 
@@ -253,12 +258,147 @@ class InMemoryTraceStore implements TraceStore {
   }
 }
 
+class InMemorySessionStore implements SessionStore {
+  private sessions = new Map<string, AgentSessionRecord>();
+
+  async create(input: CreateAgentSessionInput): Promise<AgentSessionRecord> {
+    const now = ISO();
+    const record: AgentSessionRecord = {
+      id: input.id,
+      workspaceId: input.workspaceId,
+      issueId: input.issueId,
+      issueIdentifier: input.issueIdentifier,
+      issueTitle: input.issueTitle,
+      issueUrl: input.issueUrl,
+      firstActivityAt: input.firstActivityAt,
+      lastActivityAt: input.lastActivityAt,
+      activityCount: input.activityCount ?? 0,
+      status: input.status ?? 'active',
+      contextSummary: input.contextSummary,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.sessions.set(record.id, record);
+    return record;
+  }
+
+  async findById(id: string): Promise<AgentSessionRecord | null> {
+    return this.sessions.get(id) ?? null;
+  }
+
+  async findByAgentSessionId(agentSessionId: string): Promise<AgentSessionRecord | null> {
+    return this.sessions.get(agentSessionId) ?? null;
+  }
+
+  async updateLastActivity(id: string): Promise<void> {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    session.lastActivityAt = ISO();
+    session.updatedAt = ISO();
+  }
+
+  async updateStatus(id: string, status: AgentSessionRecord['status']): Promise<void> {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    session.status = status;
+    session.updatedAt = ISO();
+  }
+
+  async updateContextSummary(id: string, summary: string): Promise<void> {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    session.contextSummary = summary;
+    session.updatedAt = ISO();
+  }
+
+  async incrementActivityCount(id: string): Promise<void> {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    session.activityCount += 1;
+    session.updatedAt = ISO();
+  }
+
+  async listByIssue(issueId: string, limit = 10): Promise<AgentSessionRecord[]> {
+    const results: AgentSessionRecord[] = [];
+    for (const session of this.sessions.values()) {
+      if (results.length >= limit) break;
+      if (session.issueId === issueId) {
+        results.push(session);
+      }
+    }
+    return results.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+  }
+
+  async listByWorkspace(workspaceId: string, limit = 25): Promise<AgentSessionRecord[]> {
+    const results: AgentSessionRecord[] = [];
+    for (const session of this.sessions.values()) {
+      if (results.length >= limit) break;
+      if (session.workspaceId === workspaceId) {
+        results.push(session);
+      }
+    }
+    return results.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+  }
+
+  async listByStatus(status: AgentSessionRecord['status'], limit = 25): Promise<AgentSessionRecord[]> {
+    const results: AgentSessionRecord[] = [];
+    for (const session of this.sessions.values()) {
+      if (results.length >= limit) break;
+      if (session.status === status) {
+        results.push(session);
+      }
+    }
+    return results.sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
+  }
+}
+
+class InMemorySessionContextStore implements SessionContextStore {
+  private contexts = new Map<string, AgentSessionContextRecord[]>();
+
+  async create(ctx: Omit<AgentSessionContextRecord, 'createdAt'>): Promise<AgentSessionContextRecord> {
+    const now = ISO();
+    const record: AgentSessionContextRecord = {
+      id: crypto.randomUUID(),
+      agentSessionId: ctx.agentSessionId,
+      activityType: ctx.activityType,
+      activityContent: ctx.activityContent,
+      timestamp: ctx.timestamp,
+      createdAt: now,
+    };
+
+    const contexts = this.contexts.get(ctx.agentSessionId) ?? [];
+    contexts.push(record);
+    this.contexts.set(ctx.agentSessionId, contexts);
+
+    return record;
+  }
+
+  async listBySession(sessionId: string, limit = 50): Promise<AgentSessionContextRecord[]> {
+    const contexts = this.contexts.get(sessionId) ?? [];
+    return contexts
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .slice(0, limit);
+  }
+
+  async deleteBySession(sessionId: string): Promise<void> {
+    this.contexts.delete(sessionId);
+  }
+
+  async deleteBefore(sessionId: string, beforeTime: string): Promise<void> {
+    const contexts = this.contexts.get(sessionId) ?? [];
+    const filtered = contexts.filter(c => c.timestamp >= beforeTime);
+    this.contexts.set(sessionId, filtered);
+  }
+}
+
 export class InMemoryStorage implements StorageAdapter {
   readonly tasks: TaskStore;
   readonly agentRuns: AgentRunStore;
   readonly replies: ReplyStore;
   readonly oauth: OAuthStore;
   readonly trace: TraceStore;
+  readonly sessions: SessionStore;
+  readonly sessionContexts: SessionContextStore;
 
   constructor() {
     this.tasks = new InMemoryTaskStore();
@@ -266,5 +406,7 @@ export class InMemoryStorage implements StorageAdapter {
     this.replies = new InMemoryReplyStore();
     this.oauth = new InMemoryOAuthStore();
     this.trace = new InMemoryTraceStore();
+    this.sessions = new InMemorySessionStore();
+    this.sessionContexts = new InMemorySessionContextStore();
   }
 }

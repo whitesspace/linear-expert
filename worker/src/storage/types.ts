@@ -5,6 +5,13 @@ import type {
   NewAgentRunRecord,
 } from "../domain/agent-run";
 import type {
+  CreateAgentSessionInput,
+  UpdateAgentSessionInput,
+  AgentSessionRecord,
+  AgentSessionContextRecord,
+  AgentActivityContext,
+} from "../domain/agent-session";
+import type {
   NewTaskRecord,
   OAuthTokenRecord,
   ReplyDraft,
@@ -64,12 +71,34 @@ export interface TraceStore {
   >;
 }
 
+export interface SessionStore {
+  create(input: CreateAgentSessionInput): Promise<AgentSessionRecord>;
+  findById(id: string): Promise<AgentSessionRecord | null>;
+  findByAgentSessionId(agentSessionId: string): Promise<AgentSessionRecord | null>;
+  updateLastActivity(id: string): Promise<void>;
+  updateStatus(id: string, status: AgentSessionRecord['status']): Promise<void>;
+  updateContextSummary(id: string, summary: string): Promise<void>;
+  incrementActivityCount(id: string): Promise<void>;
+  listByIssue(issueId: string, limit?: number): Promise<AgentSessionRecord[]>;
+  listByWorkspace(workspaceId: string, limit?: number): Promise<AgentSessionRecord[]>;
+  listByStatus(status: AgentSessionRecord['status'], limit?: number): Promise<AgentSessionRecord[]>;
+}
+
+export interface SessionContextStore {
+  create(ctx: Omit<AgentSessionContextRecord, 'createdAt'>): Promise<AgentSessionContextRecord>;
+  listBySession(sessionId: string, limit?: number): Promise<AgentSessionContextRecord[]>;
+  deleteBySession(sessionId: string): Promise<void>;
+  deleteBefore(sessionId: string, beforeTime: string): Promise<void>;
+}
+
 export interface StorageAdapter {
   tasks: TaskStore;
   agentRuns: AgentRunStore;
   replies: ReplyStore;
   oauth: OAuthStore;
   trace: TraceStore;
+  sessions: SessionStore;
+  sessionContexts: SessionContextStore;
 }
 
 export type StorageFactory = () => StorageAdapter;

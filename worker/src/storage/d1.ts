@@ -5,6 +5,11 @@ import type {
   NewAgentRunRecord,
 } from "../domain/agent-run";
 import type {
+  CreateAgentSessionInput,
+  AgentSessionRecord,
+  AgentSessionContextRecord,
+} from "../domain/agent-session";
+import type {
   NewTaskRecord,
   OAuthTokenRecord,
   ReplyDraft,
@@ -13,7 +18,7 @@ import type {
   TaskRecord,
   TaskResultPatch,
 } from "../domain/task";
-import type { AgentRunStore, OAuthStore, ReplyStore, StorageAdapter, TaskStore, TraceStore } from "./types";
+import type { AgentRunStore, OAuthStore, ReplyStore, StorageAdapter, TaskStore, TraceStore, SessionStore, SessionContextStore } from "./types";
 
 const ISO = () => new Date().toISOString();
 
@@ -53,6 +58,35 @@ function mapAgentRunRow(row: Record<string, unknown>): AgentRunRecord {
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
     lockExpiresAt: (row.lock_expires_at as string) ?? null,
+  };
+}
+
+function mapSessionRow(row: Record<string, unknown>): AgentSessionRecord {
+  return {
+    id: row.id as string,
+    workspaceId: row.workspace_id as string,
+    issueId: (row.issue_id as string) ?? undefined,
+    issueIdentifier: (row.issue_identifier as string) ?? undefined,
+    issueTitle: (row.issue_title as string) ?? undefined,
+    issueUrl: (row.issue_url as string) ?? undefined,
+    firstActivityAt: row.first_activity_at as string,
+    lastActivityAt: row.last_activity_at as string,
+    activityCount: (row.activity_count as number) ?? 0,
+    status: row.status as AgentSessionRecord['status'],
+    contextSummary: (row.context_summary as string) ?? undefined,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
+function mapSessionContextRow(row: Record<string, unknown>): AgentSessionContextRecord {
+  return {
+    id: row.id as string,
+    agentSessionId: row.agent_session_id as string,
+    activityType: row.activity_type as string,
+    activityContent: row.activity_content as string,
+    timestamp: row.timestamp as string,
+    createdAt: (row.created_at as string) ?? undefined,
   };
 }
 
@@ -392,12 +426,224 @@ class D1TraceStore implements TraceStore {
   }
 }
 
+class D1SessionStore implements SessionStore {
+  constructor(private readonly db: D1Database) {}
+
+  async create(input: CreateAgentSessionInput): Promise<AgentSessionRecord> {
+    const now = ISO();
+    await this.db
+      .prepare(
+        `INSERT INTO agent_sessions (
+          id, workspace_id, issue_id, issue_identifier, issue_title, issue_url,
+          first_activity_at, last_activity_at, activity_count, status, context_summary,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        input.id,
+        input.workspaceId,
+        input.issueId ?? null,
+        input.issueIdentifier ?? null,
+        input.issueTitle ?? null,
+        input.issueUrl ?? null,
+        input.firstActivityAt,
+        input.lastActivityAt,
+        input.activityCount ?? 0,
+        input.status ?? 'active',
+        input.contextSummary ?? null,
+        now,
+        now,
+      )
+      .run();
+
+    return {
+      id: input.id,
+      workspaceId: input.workspaceId,
+      issueId: input.issueId,
+      issueIdentifier: input.issueIdentifier,
+      issueTitle: input.issueTitle,
+      issueUrl: input.issueUrl,
+      firstActivityAt: input.firstActivityAt,
+      lastActivityAt: input.lastActivityAt,
+      activityCount: input.activityCount ?? 0,
+      status: input.status ?? 'active',
+      contextSummary: input.contextSummary,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  async findById(id: string): Promise<AgentSessionRecord | null> {
+    const result = await this.db
+      .prepare(`SELECT * FROM agent_sessions WHERE id = ? LIMIT 1`)
+      .bind(id)
+      .first();
+    return result ? mapSessionRow(result) : null;
+  }
+
+  async findByAgentSessionId(agentSessionId: string): Promise<AgentSessionRecord | null> {
+    const result = await this.db
+      .prepare(`SELECT * FROM agent_sessions WHERE id = ? LIMIT 1`)
+      .bind(agentSessionId)
+      .first();
+    return result ? mapSessionRow(result) : null;
+  }
+
+  async updateLastActivity(id: string): Promise<void> {
+    await this.db
+      .prepare(
+        `UPDATE agent_sessions
+         SET last_activity_at = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .bind(ISO(), ISO(), id)
+      .run();
+  }
+
+  async updateStatus(id: string, status: AgentSessionRecord['status']): Promise<void> {
+    await this.db
+      .prepare(
+        `UPDATE agent_sessions
+         SET status = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .bind(status, ISO(), id)
+      .run();
+  }
+
+  async updateContextSummary(id: string, summary: string): Promise<void> {
+    await this.db
+      .prepare(
+        `UPDATE agent_sessions
+         SET context_summary = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .bind(summary, ISO(), id)
+      .run();
+  }
+
+  async incrementActivityCount(id: string): Promise<void> {
+    await this.db
+      .prepare(
+        `UPDATE agent_sessions
+         SET activity_count = activity_count + 1, updated_at = ?
+         WHERE id = ?`
+      )
+      .bind(ISO(), id)
+      .run();
+  }
+
+  async listByIssue(issueId: string, limit = 10): Promise<AgentSessionRecord[]> {
+    const results = await this.db
+      .prepare(
+        `SELECT * FROM agent_sessions
+         WHERE issue_id = ?
+         ORDER BY last_activity_at DESC
+         LIMIT ?`
+      )
+      .bind(issueId, limit)
+      .all();
+    return (results.results ?? []).map(mapSessionRow);
+  }
+
+  async listByWorkspace(workspaceId: string, limit = 25): Promise<AgentSessionRecord[]> {
+    const results = await this.db
+      .prepare(
+        `SELECT * FROM agent_sessions
+         WHERE workspace_id = ?
+         ORDER BY last_activity_at DESC
+         LIMIT ?`
+      )
+      .bind(workspaceId, limit)
+      .all();
+    return (results.results ?? []).map(mapSessionRow);
+  }
+
+  async listByStatus(status: AgentSessionRecord['status'], limit = 25): Promise<AgentSessionRecord[]> {
+    const results = await this.db
+      .prepare(
+        `SELECT * FROM agent_sessions
+         WHERE status = ?
+         ORDER BY last_activity_at DESC
+         LIMIT ?`
+      )
+      .bind(status, limit)
+      .all();
+    return (results.results ?? []).map(mapSessionRow);
+  }
+}
+
+class D1SessionContextStore implements SessionContextStore {
+  constructor(private readonly db: D1Database) {}
+
+  async create(ctx: Omit<AgentSessionContextRecord, 'createdAt'>): Promise<AgentSessionContextRecord> {
+    const now = ISO();
+    const id = crypto.randomUUID();
+    await this.db
+      .prepare(
+        `INSERT INTO agent_session_contexts (
+          id, agent_session_id, activity_type, activity_content, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        id,
+        ctx.agentSessionId,
+        ctx.activityType,
+        ctx.activityContent,
+        ctx.timestamp,
+        now,
+      )
+      .run();
+
+    return {
+      id,
+      agentSessionId: ctx.agentSessionId,
+      activityType: ctx.activityType,
+      activityContent: ctx.activityContent,
+      timestamp: ctx.timestamp,
+      createdAt: now,
+    };
+  }
+
+  async listBySession(sessionId: string, limit = 50): Promise<AgentSessionContextRecord[]> {
+    const results = await this.db
+      .prepare(
+        `SELECT * FROM agent_session_contexts
+         WHERE agent_session_id = ?
+         ORDER BY timestamp DESC
+         LIMIT ?`
+      )
+      .bind(sessionId, limit)
+      .all();
+    return (results.results ?? []).map(mapSessionContextRow);
+  }
+
+  async deleteBySession(sessionId: string): Promise<void> {
+    await this.db
+      .prepare(`DELETE FROM agent_session_contexts WHERE agent_session_id = ?`)
+      .bind(sessionId)
+      .run();
+  }
+
+  async deleteBefore(sessionId: string, beforeTime: string): Promise<void> {
+    await this.db
+      .prepare(
+        `DELETE FROM agent_session_contexts
+         WHERE agent_session_id = ? AND timestamp < ?`
+      )
+      .bind(sessionId, beforeTime)
+      .run();
+  }
+}
+
 export class D1Storage implements StorageAdapter {
   readonly tasks: TaskStore;
   readonly agentRuns: AgentRunStore;
   readonly replies: ReplyStore;
   readonly oauth: OAuthStore;
   readonly trace: TraceStore;
+  readonly sessions: SessionStore;
+  readonly sessionContexts: SessionContextStore;
 
   constructor(db: D1Database) {
     this.tasks = new D1TaskStore(db);
@@ -405,5 +651,7 @@ export class D1Storage implements StorageAdapter {
     this.replies = new D1ReplyStore(db);
     this.oauth = new D1OAuthStore(db);
     this.trace = new D1TraceStore(db);
+    this.sessions = new D1SessionStore(db);
+    this.sessionContexts = new D1SessionContextStore(db);
   }
 }
