@@ -26,12 +26,56 @@ async function run() {
   });
 
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (_input: RequestInfo | URL) => {
-    return new Response(JSON.stringify({
-      data: {
-        agentActivityCreate: { success: true, agentActivity: { id: "aa_1" } },
-      },
-    }), {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+
+    // Let the worker call itself normally.
+    if (url.startsWith("https://example.com/")) {
+      return originalFetch(input, init);
+    }
+
+    // Only intercept Linear GraphQL.
+    if (!url.includes("api.linear.app/graphql")) {
+      return new Response("ok", { status: 200 });
+    }
+
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    const query = String(body?.query ?? "");
+
+    // WS-37: write thought activities
+    if (query.includes("agentActivityCreate")) {
+      return new Response(JSON.stringify({
+        data: {
+          agentActivityCreate: {
+            success: true,
+            agentActivity: {
+              id: "aa_1",
+              archivedAt: null,
+            },
+          },
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    if (query.includes("query agentActivity") || query.includes(" agentActivity(id:")) {
+      return new Response(JSON.stringify({
+        data: {
+          agentActivity: {
+            id: "aa_1",
+            archivedAt: null,
+          },
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    // Default: return empty data for other operations.
+    return new Response(JSON.stringify({ data: {} }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });

@@ -59,14 +59,42 @@ async function run() {
       }
       const body = JSON.parse(String(init?.body ?? "{}"));
       calls.push({ kind: "graphql", body, url });
-      return new Response(JSON.stringify({
-        data: {
-          agentSessionCreateOnComment: {
-            success: true,
-            agentSession: { id: "as_comment" },
+
+      const query = String(body?.query ?? "");
+      // Support multiple Linear GraphQL ops used by the worker.
+      if (query.includes("agentSessionCreateOnComment")) {
+        return new Response(JSON.stringify({
+          data: {
+            agentSessionCreateOnComment: {
+              success: true,
+              agentSession: { id: "as_comment" },
+            },
           },
-        },
-      }), {
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (query.includes("agentActivityCreate")) {
+        return new Response(JSON.stringify({
+          data: {
+            agentActivityCreate: {
+              success: true,
+              agentActivity: {
+                id: "aa_1",
+                archivedAt: null,
+              },
+            },
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      // Default: return empty data to avoid blowing up the SDK on unexpected shapes.
+      return new Response(JSON.stringify({ data: {} }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
