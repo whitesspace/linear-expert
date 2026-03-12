@@ -429,6 +429,26 @@ npm test
 - `./scripts/lec-smoke.sh`（issue create/get/update/comment lifecycle/attachment lifecycle/relation/project CRUD/archive+delete）
 - `./scripts/lec-triage-smoke.sh`（当前做 list-only；`move` 依赖真实 workspace 状态配置，建议在真实值上人工验）
 
+### Search（已接入）
+
+#### Worker routes（internal）
+- `POST /internal/linear/search`
+
+#### lec（thin wrapper）
+- `./scripts/lec search issues --query "<text>" [--project <projectId>] [--state <StateName>] [--assignee <userId>] [--label <label>] [--team PCF] [--json]`
+- `./scripts/lec search documents --query "<text>" [--project <projectId>] [--team PCF] [--json]`
+- `./scripts/lec search projects --query "<text>" [--team PCF] [--json]`
+- `./scripts/lec search customers --query "<text>" [--team PCF] [--json]`
+- `./scripts/lec search customer-needs --query "<text>" [--customer <customerId>] [--project <projectId>] [--team PCF] [--json]`
+- `./scripts/lec search project-updates --query "<text>" [--project <projectId>] [--team PCF] [--json]`
+- `./scripts/lec search triage [--query "<text>"] [--state <StateName>] [--assignee <userId>] [--project <projectId>] [--team PCF] [--json]`
+- `./scripts/lec search all --query "<text>" [--limit 20] [--team PCF] [--json]`
+
+#### 设计约束
+- 统一返回 `items[]`，每项都包含 `entityType/id/title/subtitle/url/entity`
+- 不支持的过滤组合直接报错，不做 silent ignore
+- `search` 负责发现对象，后续精确读取和变更仍走各对象域 `get/update/...`
+
 ### Initiatives（已接入）
 
 #### Worker routes（internal）
@@ -584,7 +604,7 @@ npm test
 
 ### 已完成
 - OAuth app 授权 + D1 存储骨架
-- Internal execution APIs：Issues / Comments / Attachments / Relations / Projects / Triage / Initiatives / Cycles / Labels / Documents / Customers / Customer Needs / Project Updates / Workflow States / Resolve
+- Internal execution APIs：Issues / Comments / Attachments / Relations / Projects / Triage / Search / Initiatives / Cycles / Labels / Documents / Customers / Customer Needs / Project Updates / Workflow States / Resolve
 - `lec` CLI 能力面与 worker internal routes 对齐
 - 分域 smoke 脚本：`lec-smoke.sh`、`lec-initiatives-smoke.sh`、`lec-cycles-smoke.sh`、`lec-labels-smoke.sh`、`lec-triage-smoke.sh`、`lec-documents-smoke.sh`、`lec-customers-smoke.sh`、`lec-customer-needs-smoke.sh`、`lec-project-updates-smoke.sh`、`lec-workflow-states-smoke.sh`
 

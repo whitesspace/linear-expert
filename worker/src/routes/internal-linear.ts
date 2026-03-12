@@ -38,6 +38,7 @@ import { archiveInitiative, createInitiative, getInitiative, listInitiatives, up
 import { createIssueLabel, getIssueLabel, listIssueLabels, restoreIssueLabel, retireIssueLabel, updateIssueLabel } from "../linear/labels";
 import { createProjectUpdate, deleteProjectUpdate, getProjectUpdate, listProjectUpdates, unarchiveProjectUpdate, updateProjectUpdate } from "../linear/project-updates";
 import { archiveProject, createProject, getProject, listProjects, updateProject } from "../linear/projects";
+import { searchLinear } from "../linear/search";
 import { triageList } from "../linear/triage";
 import { archiveCycle, createCycle, getCycle, listCycles, updateCycle } from "../linear/cycles";
 import { archiveWorkflowState, createWorkflowState, getWorkflowState, listWorkflowStates, updateWorkflowState } from "../linear/workflow-states";
@@ -331,6 +332,21 @@ const WorkflowStatesUpdateRequestSchema = z.object({
   message: "workflow_states_update requires at least one field",
 });
 
+const SearchRequestSchema = z.object({
+  workspaceId: z.string().min(1),
+  teamId: z.string().min(1).optional(),
+  scope: z.enum(["issues", "documents", "projects", "customers", "customer-needs", "project-updates", "triage", "all"]),
+  query: z.string().min(1).optional(),
+  project: z.string().min(1).optional(),
+  state: z.string().min(1).optional(),
+  assignee: z.string().min(1).optional(),
+  label: z.string().min(1).optional(),
+  customer: z.string().min(1).optional(),
+  limit: z.number().int().positive().max(100).optional(),
+}).refine((value) => value.query !== undefined || value.project !== undefined || value.state !== undefined || value.assignee !== undefined || value.label !== undefined || value.customer !== undefined, {
+  message: "search requires at least one filter",
+});
+
 type RouteHandler = (request: Request, env: Env) => Promise<Response>;
 
 async function parseJson(request: Request): Promise<unknown> {
@@ -518,6 +534,8 @@ const ROUTES: Record<string, RouteHandler> = {
     updateWorkflowState(env, payload.workspaceId, payload.id, payload)),
   "POST /internal/linear/workflow-states/archive": withSchema(IdRequestSchema, "workflow_states_archive", (env, payload) =>
     archiveWorkflowState(env, payload.workspaceId, payload.id)),
+  "POST /internal/linear/search": withSchema(SearchRequestSchema, "search", (env, payload) =>
+    searchLinear(env, payload.workspaceId, payload)),
 };
 
 async function handleResolve(request: Request, env: Env): Promise<Response> {
