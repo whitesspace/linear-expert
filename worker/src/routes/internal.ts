@@ -309,26 +309,30 @@ async function handleResolve(request: Request, env: Env): Promise<Response> {
     const { getStorage } = await import("../storage");
     const storage = getStorage(env);
 
-    // Default workspaceId fallback must match oauth callback fallback.
-    const workspaceId = payload.data.workspaceId ?? "default-workspace";
-    const token = await storage.oauth.get(workspaceId);
-    if (!token?.accessToken) {
+    const workspaceId = payload.data.workspaceId;
+    if (!workspaceId) {
       return json(
         {
           ok: false,
-          error: "no_oauth_token",
-          message: `No OAuth token stored for workspace ${workspaceId}. Visit /oauth/start to authorize.`,
+          error: "invalid_request",
+          message: "workspaceId is required (use Linear webhook organizationId).",
         },
-        { status: 401 },
+        { status: 400 },
       );
     }
 
-    // identity is useful for debugging; resolves org id.
-    const identity = await getInstallationIdentity(token.accessToken);
+    // Use shared token refresh logic.
+    const { withWorkspaceAccessToken, getInstallationIdentity } = await import("../linear/client");
+
+    const identity = await withWorkspaceAccessToken(env, workspaceId, async (accessToken) => {
+      // identity is useful for debugging; resolves org id.
+      return getInstallationIdentity(accessToken);
+    });
 
     // Resolve teamId by teamKey.
     const { createLinearSdkClient, sdkRequest } = await import("../linear/sdk");
-    const client = createLinearSdkClient(token.accessToken);
+    const accessToken = await withWorkspaceAccessToken(env, workspaceId, async (t) => t);
+    const client = createLinearSdkClient(accessToken);
 
     type TeamsByKeyResponse = {
       teams?: {
