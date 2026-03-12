@@ -198,6 +198,15 @@ const ACTIVE_EXECUTION_DOMAINS: LinearExecutionDomainPlan[] = [
       { action: "archive", method: "POST", path: "/internal/linear/workflow-states/archive" },
     ],
   },
+  {
+    domain: "search",
+    status: "active",
+    summary: "统一搜索 issues、documents、projects、customers、customer-needs、project-updates 与 triage。",
+    actions: ["search"],
+    routes: [
+      { action: "search", method: "POST", path: "/internal/linear/search" },
+    ],
+  },
 ];
 
 const NEXT_CONCRETE_IMPLEMENTATION_STEPS: string[] = [];

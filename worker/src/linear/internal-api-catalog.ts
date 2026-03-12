@@ -554,4 +554,20 @@ export const INTERNAL_LINEAR_API_ENDPOINTS: ApiEndpoint[] = [
     description: "解析 team key 到 workspaceId/teamId",
     requiredParams: ["teamKey", "workspaceId"],
   },
+  {
+    method: "POST",
+    path: "/internal/linear/search",
+    category: "search",
+    description: "统一搜索 issues、documents、projects、customers、customer-needs、project-updates 与 triage。",
+    requiredParams: ["workspaceId", "scope"],
+    optionalParams: ["teamId", "query", "project", "state", "assignee", "label", "customer", "limit"],
+    exampleBody: `{
+  "workspaceId": "ws_abc123",
+  "teamId": "team_abc123",
+  "scope": "issues",
+  "query": "oauth timeout",
+  "state": "In Progress",
+  "limit": 10
+}`,
+  },
 ];

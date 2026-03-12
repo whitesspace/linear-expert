@@ -13,6 +13,7 @@ async function run() {
   assert.match(docs, /\/internal\/linear\/issues\/archive/);
   assert.match(docs, /\/internal\/linear\/triage\/move/);
   assert.match(docs, /\/internal\/linear\/workflow-states\/archive/);
+  assert.match(docs, /\/internal\/linear\/search/);
 
   const plan = getExecutionLayerPlan();
   const domains = [...plan.activeDomains, ...plan.plannedDomains].map((item) => item.domain);
@@ -25,6 +26,7 @@ async function run() {
   assert.ok(domains.includes("issues"));
   assert.ok(domains.includes("triage"));
   assert.ok(domains.includes("workflow-states"));
+  assert.ok(domains.includes("search"));
 
   console.log("linear.capabilities.catalog.test passed");
 }

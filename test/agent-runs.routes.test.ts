@@ -127,6 +127,38 @@ async function run() {
     );
     assert.equal(claimRes.status, 200);
 
+    const heartbeatRes = await worker.fetch(
+      new Request(`https://example.com/internal/agent-runs/${runId}/heartbeat`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer internal_secret",
+        },
+        body: JSON.stringify({
+          phase: "running",
+          message: "Dispatching to OpenClaw",
+          percent: 25,
+        }),
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+    assert.equal(heartbeatRes.status, 200);
+    const heartbeatJson = await heartbeatRes.json() as {
+      run?: {
+        status?: string;
+        lastHeartbeatAt?: string | null;
+        progressPhase?: string | null;
+        progressMessage?: string | null;
+        progressPercent?: number | null;
+      };
+    };
+    assert.equal(heartbeatJson.run?.status, "processing");
+    assert.equal(heartbeatJson.run?.progressPhase, "running");
+    assert.equal(heartbeatJson.run?.progressMessage, "Dispatching to OpenClaw");
+    assert.equal(heartbeatJson.run?.progressPercent, 25);
+    assert.ok(heartbeatJson.run?.lastHeartbeatAt);
+
     const resultRes = await worker.fetch(
       new Request(`https://example.com/internal/agent-runs/${runId}/result`, {
         method: "POST",
@@ -143,8 +175,18 @@ async function run() {
       {} as ExecutionContext,
     );
     assert.equal(resultRes.status, 200);
-    const resultJson = await resultRes.json() as { run?: { status?: string } };
+    const resultJson = await resultRes.json() as {
+      run?: {
+        status?: string;
+        progressPhase?: string | null;
+        progressMessage?: string | null;
+        progressPercent?: number | null;
+      };
+    };
     assert.equal(resultJson.run?.status, "completed");
+    assert.equal(resultJson.run?.progressPhase, "running");
+    assert.equal(resultJson.run?.progressMessage, "Dispatching to OpenClaw");
+    assert.equal(resultJson.run?.progressPercent, 25);
   } finally {
     globalThis.fetch = originalFetch;
   }

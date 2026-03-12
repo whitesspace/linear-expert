@@ -36,7 +36,7 @@
 ### B. OpenClaw 插件负责
 
 - background service 轮询 `GET /internal/agent-runs`
-- claim / execute / submit result
+- claim / execute / heartbeat / submit result
 - Gateway RPC:
   - `linear-expert-bridge.status`
   - `linear-expert-bridge.runOnce`
@@ -70,12 +70,13 @@
 - polling client
 - runtime-first 执行适配
 - active run heartbeat / stop 状态
+- heartbeat / progress 回传到 Worker `agent-runs`
 - 复用 runner-core 作为 CLI fallback
 
 ### 暂不做
 
 - 真实 Gateway API 版本矩阵验证
-- 细粒度 progress 上报到 Worker
+- 更细粒度的 step-level progress 上报
 - 停止信号到所有 Gateway 版本的一致 cancel 语义
 - 替换旧 runner 的生产 cutover
 
@@ -91,13 +92,23 @@
 - `lockDurationSeconds`
 - `maxRunsPerPoll`
 
+## 运行态字段
+
+Worker 侧 `agent_runs` 额外保存：
+
+- `lastHeartbeatAt`
+- `progressPhase`
+- `progressMessage`
+- `progressPercent`
+- `gatewayRunId`
+
 ## 验证策略
 
 ### 单元/契约
 
 - config normalize
 - pollOnce → runtime-first list / claim / submit 主路径
-- processClaimedRun → stop / heartbeat 生命周期
+- processClaimedRun → stop / heartbeat / progress 生命周期
 - plugin register → service / RPC / CLI / HTTP 注册
 
 ### 现有回归

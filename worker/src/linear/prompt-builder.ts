@@ -36,7 +36,7 @@ export function buildInternalApiDocs(origin: string): string {
     { title: "Issue 管理", items: ["issues", "attachments", "comments", "relations"] },
     { title: "项目与路线图", items: ["projects", "initiatives", "cycles", "project-updates"] },
     { title: "客户与文档", items: ["customers", "customer-needs", "documents"] },
-    { title: "团队与流程", items: ["team", "triage", "workflow-states", "labels"] },
+    { title: "团队与流程", items: ["team", "triage", "workflow-states", "labels", "search"] },
   ];
   const sections = [
     `## Linear Internal LEC API — 可用操作`,

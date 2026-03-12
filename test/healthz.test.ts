@@ -37,6 +37,7 @@ async function run() {
       "customer-needs",
       "project-updates",
       "workflow-states",
+      "search",
     ],
   );
   assert.deepEqual(body.executionLayer.plannedDomains.map((item) => item.domain), []);
@@ -45,6 +46,7 @@ async function run() {
   assert.equal(body.routes.internalLinearCommentsCreate, "POST /internal/linear/comment");
   assert.equal(body.routes.internalLinearDocumentsCreate, "POST /internal/linear/documents/create");
   assert.equal(body.routes.internalLinearProjectUpdatesCreate, "POST /internal/linear/project-updates/create");
+  assert.equal(body.routes.internalLinearSearchSearch, "POST /internal/linear/search");
 
   console.log("healthz.test passed");
 }

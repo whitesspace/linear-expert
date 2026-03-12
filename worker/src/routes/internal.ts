@@ -70,6 +70,16 @@ const AgentRunResultSchema = z.object({
   message: "agent_run_result requires intent when ok=true",
 });
 
+const AgentRunHeartbeatSchema = z.object({
+  phase: z.string().min(1).optional(),
+  message: z.string().min(1).optional(),
+  percent: z.number().min(0).max(100).optional(),
+  gatewayRunId: z.string().min(1).optional(),
+}).refine(
+  (value) => value.phase !== undefined || value.message !== undefined || value.percent !== undefined || value.gatewayRunId !== undefined,
+  { message: "heartbeat payload requires at least one field" },
+);
+
 type LinearMutationResult =
   | Awaited<ReturnType<typeof postComment>>
   | Awaited<ReturnType<typeof createIssue>>
@@ -166,6 +176,11 @@ export async function handleInternalRequest(
   const runResultMatch = url.pathname.match(/^\/internal\/agent-runs\/(.+)\/result$/);
   if (runResultMatch && request.method === "POST") {
     return handleSubmitAgentRunResult(request, env, storage, runResultMatch[1]);
+  }
+
+  const runHeartbeatMatch = url.pathname.match(/^\/internal\/agent-runs\/(.+)\/heartbeat$/);
+  if (runHeartbeatMatch && request.method === "POST") {
+    return handleHeartbeatAgentRun(request, storage, runHeartbeatMatch[1]);
   }
 
   return json({ error: "not found" }, { status: 404 });
@@ -350,5 +365,38 @@ async function handleSubmitAgentRunResult(
   });
 
   const updated = await finalizeRun(execResult.ok ? "completed" : "failed");
+  return json({ run: updated });
+}
+
+async function handleHeartbeatAgentRun(
+  request: Request,
+  storage: StorageAdapter,
+  runId: string,
+): Promise<Response> {
+  let payload: unknown;
+  try {
+    payload = await request.json();
+  } catch (error) {
+    console.warn("invalid heartbeat body", error);
+    return json({ error: "invalid JSON" }, { status: 400 });
+  }
+
+  const parsed = AgentRunHeartbeatSchema.safeParse(payload);
+  if (!parsed.success) {
+    return json({ error: "invalid payload", details: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const run = await storage.agentRuns.findById(runId);
+  if (!run) {
+    return json({ error: "run not found" }, { status: 404 });
+  }
+  if (run.status !== "processing") {
+    return json({ error: "run not processing" }, { status: 409 });
+  }
+
+  const updated = await storage.agentRuns.updateHeartbeat(runId, parsed.data);
+  if (!updated) {
+    return json({ error: "run unavailable" }, { status: 409 });
+  }
   return json({ run: updated });
 }
