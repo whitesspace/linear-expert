@@ -245,7 +245,7 @@ async function run() {
       data: {
         id: "comment_1",
         body: "@agent please help",
-        isArtificialAgentSessionRoot: false,
+        isArtificialAgentSessionRoot: true,
         issue: { id: "issue_1" },
         organizationId: "ws_1",
       },
@@ -354,6 +354,94 @@ async function run() {
     ]);
     const assignRuns = await getStorage(env).agentRuns.listByStatus({ status: "pending", limit: 10 });
     assert.ok(assignRuns.some((run) => run.agentSessionId === "as_issue" && run.workspaceId === "ws_1"));
+
+    const ignoredCommentPayload = {
+      type: "Comment",
+      data: {
+        id: "comment_ignored",
+        body: "普通评论，没有 mention",
+        isArtificialAgentSessionRoot: false,
+        issue: { id: "issue_1" },
+        organizationId: "ws_1",
+      },
+    };
+    const ignoredCommentBody = JSON.stringify(ignoredCommentPayload);
+    const ignoredCommentRes = await worker.fetch(
+      new Request("https://example.com/webhooks/linear", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "linear-signature": sign(env.LINEAR_WEBHOOK_SECRET as string, ignoredCommentBody),
+          "linear-timestamp": String(Date.now()),
+          "linear-event": "Comment",
+        },
+        body: ignoredCommentBody,
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+    assert.equal(ignoredCommentRes.status, 200);
+    const ignoredCommentJson = await ignoredCommentRes.json() as { status?: string; kind?: string };
+    assert.equal(ignoredCommentJson.status, "ignored");
+    assert.equal(ignoredCommentJson.kind, "Comment");
+
+    const ignoredIssuePayload = {
+      type: "Issue",
+      action: "update",
+      organizationId: "ws_1",
+      updatedFrom: {
+        title: "before",
+      },
+      data: {
+        id: "issue_ignored",
+        title: "after",
+      },
+    };
+    const ignoredIssueBody = JSON.stringify(ignoredIssuePayload);
+    const ignoredIssueRes = await worker.fetch(
+      new Request("https://example.com/webhooks/linear", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "linear-signature": sign(env.LINEAR_WEBHOOK_SECRET as string, ignoredIssueBody),
+          "linear-timestamp": String(Date.now()),
+          "linear-event": "Issue",
+        },
+        body: ignoredIssueBody,
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+    assert.equal(ignoredIssueRes.status, 200);
+    const ignoredIssueJson = await ignoredIssueRes.json() as { status?: string; kind?: string };
+    assert.equal(ignoredIssueJson.status, "ignored");
+    assert.equal(ignoredIssueJson.kind, "Issue");
+
+    const ignoredGenericPayload = {
+      type: "Project",
+      action: "update",
+      organizationId: "ws_1",
+      data: { id: "project_1" },
+    };
+    const ignoredGenericBody = JSON.stringify(ignoredGenericPayload);
+    const ignoredGenericRes = await worker.fetch(
+      new Request("https://example.com/webhooks/linear", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "linear-signature": sign(env.LINEAR_WEBHOOK_SECRET as string, ignoredGenericBody),
+          "linear-timestamp": String(Date.now()),
+          "linear-event": "Project",
+        },
+        body: ignoredGenericBody,
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+    assert.equal(ignoredGenericRes.status, 200);
+    const ignoredGenericJson = await ignoredGenericRes.json() as { status?: string; kind?: string };
+    assert.equal(ignoredGenericJson.status, "ignored");
+    assert.equal(ignoredGenericJson.kind, "Project");
 
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();

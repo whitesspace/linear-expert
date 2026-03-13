@@ -29,7 +29,7 @@ function buildConfig() {
 async function run() {
   {
     const installRoot = await mkdtemp(path.join(tmpdir(), "linear-expert-bridge-plugin-"));
-    const sourceDir = "/Users/clu/Documents/Github/placify/linear-expert.worktrees/linear-expert-bridge/openclaw/plugins/linear-expert-bridge";
+    const sourceDir = path.resolve(process.cwd(), "openclaw/plugins/linear-expert-bridge");
     const targetDir = path.join(installRoot, "linear-expert-bridge");
     await cp(sourceDir, targetDir, { recursive: true });
     const installedModule = await import(pathToFileURL(path.join(targetDir, "index.mjs")).href);
@@ -41,8 +41,28 @@ async function run() {
     const config = buildConfig();
     assert.equal(config.linearExpertBaseUrl, "https://linear-expert.example.com");
     assert.equal(config.cliArgs, "agent --json --message");
+    assert.equal(config.allowCliFallback, false);
     assert.equal(config.maxRunsPerPoll, 3);
     assert.equal(config.heartbeatIntervalMs, 10000);
+  }
+
+  {
+    const state = createBridgeState();
+    let listed = false;
+    await assert.rejects(() => pollOnce(buildConfig(), state, {
+      api: {
+        logger: {
+          warn() {},
+        },
+      },
+      client: {
+        listRuns: async () => {
+          listed = true;
+          return [];
+        },
+      },
+    }), /gateway_runtime_unavailable/);
+    assert.equal(listed, false);
   }
 
   {
@@ -102,6 +122,34 @@ async function run() {
     assert.equal(agentCall?.options.expectFinal, true);
     assert.ok(requests.some((item) => item.url.includes("/internal/agent-runs/run_1/result")));
     assert.ok(requests.some((item) => item.url.includes("/internal/agent-runs/run_1/heartbeat")));
+  }
+
+  {
+    const submitted = [];
+    const state = createBridgeState();
+    await processClaimedRun({
+      id: "run_cli_fallback",
+      agentSessionId: "as_cli",
+      payloadJson: JSON.stringify({ prompt: "hello" }),
+    }, normalizeConfig({
+      ...buildConfig(),
+      allowCliFallback: true,
+    }), state, {
+      client: {
+        heartbeatRun: async () => ({ ok: true }),
+        submitResult: async (runId, payload) => {
+          submitted.push({ runId, payload });
+          return { ok: true };
+        },
+      },
+      executeRun: Object.assign(
+        async () => ({ ok: true, intent: { actions: [{ kind: "noop" }] } }),
+        { executionMode: "cli_fallback" },
+      ),
+    });
+
+    assert.equal(submitted.length, 1);
+    assert.equal(submitted[0].payload.ok, true);
   }
 
   {
@@ -182,6 +230,7 @@ async function run() {
 
     const snapshot = snapshotBridgeState(state, config);
     assert.equal(snapshot.pluginId, "linear-expert-bridge");
+    assert.equal(snapshot.config.allowCliFallback, false);
     assert.equal(snapshot.config.heartbeatIntervalMs, 10000);
   }
 
@@ -191,7 +240,10 @@ async function run() {
       services: [],
     };
     const api = {
-      pluginConfig: buildConfig(),
+      pluginConfig: normalizeConfig({
+        ...buildConfig(),
+        allowCliFallback: true,
+      }),
       logger: {
         warn() {},
         error(...args) {

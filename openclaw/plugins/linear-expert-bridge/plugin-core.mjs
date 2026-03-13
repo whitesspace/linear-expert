@@ -5,6 +5,7 @@ export const PLUGIN_ID = "linear-expert-bridge";
 const DEFAULTS = {
   cliBin: "openclaw",
   cliArgs: "agent --json --message",
+  allowCliFallback: false,
   pollIntervalMs: 5000,
   timeoutMs: 300000,
   heartbeatIntervalMs: 10000,
@@ -154,6 +155,25 @@ function createCliExecutor(config) {
   return execute;
 }
 
+function createGatewayRequiredExecutor() {
+  const execute = async () => ({
+    ok: false,
+    error: "gateway_runtime_unavailable",
+  });
+  execute.executionMode = "gateway_runtime_required";
+  return execute;
+}
+
+function isExecutionRuntimeAvailable(api, config, deps = {}) {
+  if (typeof deps.executeRun === "function") {
+    return true;
+  }
+  if (getGatewayCaller(api, deps)) {
+    return true;
+  }
+  return config.allowCliFallback;
+}
+
 function createGatewayRuntimeExecutor(api, config, deps = {}) {
   const gatewayCall = getGatewayCaller(api, deps);
   if (!gatewayCall) {
@@ -218,7 +238,14 @@ function createExecutionAdapter(api, config, deps = {}) {
     return execute;
   }
 
-  return createGatewayRuntimeExecutor(api, config, deps) ?? createCliExecutor(config);
+  const gatewayExecutor = createGatewayRuntimeExecutor(api, config, deps);
+  if (gatewayExecutor) {
+    return gatewayExecutor;
+  }
+  if (config.allowCliFallback) {
+    return createCliExecutor(config);
+  }
+  return createGatewayRequiredExecutor();
 }
 
 function normalizeRunResult(result, signal) {
@@ -250,6 +277,7 @@ export function normalizeConfig(raw = {}) {
     internalSecret: String(raw.internalSecret || "").trim(),
     cliBin: String(raw.cliBin || DEFAULTS.cliBin),
     cliArgs: String(raw.cliArgs || DEFAULTS.cliArgs),
+    allowCliFallback: raw.allowCliFallback === true,
     pollIntervalMs: toPositiveNumber(raw.pollIntervalMs, DEFAULTS.pollIntervalMs),
     timeoutMs: toPositiveNumber(raw.timeoutMs, DEFAULTS.timeoutMs),
     heartbeatIntervalMs: toPositiveNumber(raw.heartbeatIntervalMs, DEFAULTS.heartbeatIntervalMs),
@@ -304,6 +332,7 @@ export function snapshotBridgeState(state, config) {
       linearExpertBaseUrl: config.linearExpertBaseUrl,
       cliBin: config.cliBin,
       cliArgs: config.cliArgs,
+      allowCliFallback: config.allowCliFallback,
       pollIntervalMs: config.pollIntervalMs,
       timeoutMs: config.timeoutMs,
       heartbeatIntervalMs: config.heartbeatIntervalMs,
@@ -495,6 +524,9 @@ export async function processClaimedRun(run, config, state, deps = {}) {
 }
 
 export async function pollOnce(config, state, deps = {}) {
+  if (!isExecutionRuntimeAvailable(deps.api, config, deps)) {
+    throw new Error("gateway_runtime_unavailable");
+  }
   const client = deps.client ?? createLinearExpertClient(config, deps.fetchImpl);
   state.lastPollAt = nowIso();
   state.loopCount += 1;

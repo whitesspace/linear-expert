@@ -2,7 +2,6 @@ import type { Env } from "../env";
 import { json } from "../lib/http";
 import { buildAgentSessionExternalUrls, createAgentSessionOnComment, createAgentSessionOnIssue, updateAgentSessionExternalUrls } from "../linear/agent";
 import { getInstallationIdentityForWorkspace } from "../linear/client";
-import { parseLinearWebhook } from "../linear/parser";
 import { verifyLinearSignature } from "../linear/signature";
 import type { StorageAdapter } from "../storage/types";
 import { handleAgentSessionInvokePayload } from "./invoke";
@@ -92,7 +91,6 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
   const payloadKeys = parsed && typeof parsed === "object" ? Object.keys(parsed as any).slice(0, 30) : [];
   const dataKeys = (parsed as any)?.data && typeof (parsed as any).data === "object" ? Object.keys((parsed as any).data).slice(0, 30) : [];
 
-  // Always accept all Linear webhook event types (compat), but only execute behavior for supported types.
   console.info("linear_webhook", {
     linearEvent,
     payloadKeys,
@@ -120,13 +118,12 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
   }
 
   // WS-37: Comment fallback invocation (C):
-  // - trigger if isArtificialAgentSessionRoot=true OR comment body contains @/mention-like token.
+  // - only trigger when Linear has already resolved this comment as an agent-session root.
   if (linearEvent === "Comment") {
-    const bodyText = String((parsed as any)?.data?.body ?? "");
     const isRoot = Boolean((parsed as any)?.data?.isArtificialAgentSessionRoot);
-    const hasMention = bodyText.includes("@") || bodyText.includes("/expert") || bodyText.includes("/agent") || bodyText.includes("/invoke");
 
-    if (isRoot || hasMention) {
+    if (isRoot) {
+      const bodyText = String((parsed as any)?.data?.body ?? "");
       const data = (parsed as any)?.data ?? {};
       const workspaceId = (parsed as any)?.organizationId ?? data?.organizationId;
       if (!workspaceId || !data?.id) {
@@ -215,17 +212,5 @@ export async function handleLinearWebhook(request: Request, env: Env, storage: S
     }
   }
 
-  // For all other events, try the existing task-queue parser; if unsupported, ignore quietly.
-  const newTask = parseLinearWebhook(parsed, rawBody);
-  if (!newTask) {
-    return json({ status: "ignored", kind: linearEvent || "unknown" }, { status: 200 });
-  }
-
-  const duplicated = await storage.tasks.findByWebhookId(newTask.webhookId);
-  if (duplicated) {
-    return json({ status: "duplicate", taskId: duplicated.id }, { status: 200 });
-  }
-
-  const created = await storage.tasks.create(newTask);
-  return json({ status: "accepted", taskId: created.id }, { status: 202 });
+  return json({ status: "ignored", kind: linearEvent || eventType || "unknown" }, { status: 200 });
 }

@@ -126,10 +126,12 @@ linear-expert/
 - `POST /webhooks/linear`
   - 接收 Linear webhook
   - 使用 `@linear/sdk/webhooks` 校验 `linear-signature` 与 `linear-timestamp`
-  - `@agent` / `isArtificialAgentSessionRoot` 命中后，会先创建 session，再立即主动 invoke，不再被动等待官方 `AgentSessionEvent.created`
+  - 只处理三类事件：`AgentSessionEvent.*`、被 Linear 标记为 `isArtificialAgentSessionRoot` 的 `Comment`、assign/delegate 给当前 agent 的 `Issue.update`
+  - 当 comment 已被 Linear 认定为 agent invocation root（`isArtificialAgentSessionRoot=true`）时，会先创建 session，再立即主动 invoke，不再被动等待官方 `AgentSessionEvent.created`
   - issue 被 assign / delegate 给当前 app user 时，也会主动创建 session 并立即 invoke
   - comment/issue fallback 创建出 session 后，会立即回写 `externalUrls`，指向公开的 session 状态页
   - 当内部 invocation/comment fallback 失败时返回非 200，允许 Linear 重试
+  - 其余 webhook 一律 `ignored`，不再进入旧 task-queue fallback
 
 ### Internal（仅 OpenClaw / lec 使用）
 

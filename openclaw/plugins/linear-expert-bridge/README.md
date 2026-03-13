@@ -4,7 +4,7 @@
 
 目标：
 - 在 Gateway 进程内轮询 `linear-expert` 的 `agent-runs`
-- 优先通过 Gateway 内部 agent runtime 执行 run，拿不到稳定入口时再退回 CLI
+- 优先通过 Gateway 内部 agent runtime 执行 run；默认要求 runtime 可用
 - 通过 Gateway RPC 暴露插件状态与手动触发
 - 避免再依赖独立的外部 runner 守护进程
 
@@ -51,6 +51,7 @@ openclaw plugins install -l ./openclaw/plugins/linear-expert-bridge
           "internalSecret": "OPENCLAW_INTERNAL_SECRET",
           "cliBin": "openclaw",
           "cliArgs": "agent --json --message",
+          "allowCliFallback": false,
           "pollIntervalMs": 5000,
           "timeoutMs": 300000,
           "heartbeatIntervalMs": 10000,
@@ -80,12 +81,13 @@ openclaw doctor --non-interactive
 - 如果日志出现 `plugins.allow is empty`，说明配置里没有显式信任 `linear-expert-bridge`。
 - 如果日志出现 `http route registration missing or invalid auth`，说明你运行的是旧版本插件；当前版本已经不再注册插件 HTTP route。
 - 如果日志持续出现 `http_500`，说明远端 `linear-expert` Worker 的 `/internal/agent-runs` 在报错，这属于 Worker 侧问题，不是安装步骤本身的问题。
+- 如果状态里看到 `gateway_runtime_required` 或 `gateway_runtime_unavailable`，说明当前 OpenClaw 宿主没有把稳定的 `agent` runtime 调用入口暴露给插件；当前版本默认不会再静默退回 CLI。
 
 ## 当前限制
 
-- 这一版已经支持 runtime-first 的执行适配，但真正启用仍取决于当前 Gateway 是否暴露可调用的 agent RPC 入口
+- 这一版默认要求 Gateway runtime；只有显式把 `allowCliFallback` 设为 `true` 才会回退到本地 CLI
 - stop 目前是 best-effort：若当前运行时不支持取消信号，会退回到本地中断与结果回传
 - heartbeat / progress 会以 best-effort 方式同步回 Worker，不会因为状态回传失败而中断实际 run
 - 背景轮询失败只会记录到插件状态，不会再向宿主抛出未处理 rejection
 - 当前版本不注册插件 HTTP route；状态查看统一走 RPC/CLI，避免触发 Gateway 的 route auth 校验错误
-- 旧 `openclaw/runner` 仍保留，作为 CLI fallback
+- 旧 `openclaw/runner` 仍保留，但现在是显式 opt-in 的 CLI fallback
